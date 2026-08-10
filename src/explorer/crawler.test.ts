@@ -38,6 +38,11 @@ const SITE: Record<string, string> = {
   '/product/2': `<html lang="en"><body><h1>P2</h1><button data-testid="buy">Buy</button></body></html>`,
   '/product/3': `<html lang="en"><body><h1>P3</h1><button data-testid="buy">Buy</button></body></html>`,
   '/blocked': `<html lang="en"><body><h1>Please verify you are human</h1></body></html>`,
+  '/catalog': `<html lang="en"><body>
+    <h1>Catalog</h1>
+    <a href="/item.html?id=1">One</a><a href="/item.html?id=2">Two</a><a href="/item.html?id=3">Three</a>
+  </body></html>`,
+  '/item.html': `<html lang="en"><body><h1>Item</h1><button data-testid="buy">Buy</button></body></html>`,
   '/wall': `<html lang="en"><body>
     <h1>Sign in</h1>
     <form method="POST" action="/wall">
@@ -239,6 +244,21 @@ describe('crawl', () => {
     const result = await crawl(context, { config: config() });
     expect(result.loginWallSuspected).toBeUndefined();
   }, 60_000);
+
+  it('collapses query-parameterised URLs into one representative page', async () => {
+    const result = await crawl(context, { config: config(), startUrl: `${baseUrl}/catalog` });
+    const items = result.model.pages.filter((p) => p.urlPattern === '/item.html');
+    // Three ?id= links, one page in the model — the master plan's "store one
+    // representative page", which page identity (urlPattern) already implies.
+    expect(items).toHaveLength(1);
+    expect(result.skipped.filter((s) => s.reason === 'duplicate-pattern')).toHaveLength(2);
+  }, 60_000);
+
+  it('never emits two pages sharing an id', async () => {
+    const result = await crawl(context, { config: config({ explorer: { maxPages: 50 } }) });
+    const ids = result.model.pages.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  }, 90_000);
 
   it('is deterministic — two crawls of an unchanged site produce the same page ids', async () => {
     const a = await crawl(context, { config: config({ explorer: { maxPages: 4 } }) });

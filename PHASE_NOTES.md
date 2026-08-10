@@ -384,6 +384,24 @@ None. The whole phase runs on the LOCKED `ExplorerConfigSchema` — including
 interaction pass. New behaviour is controlled by CLI flags instead:
 `--no-interaction-pass`, `--no-flows`, `--flow <id...>`.
 
+### Defect found while preparing the operator test run
+
+**Query-parameterised URLs produced duplicate page ids.** Page identity is the
+normalized *path* (`pageId(urlPattern)`), while the crawl frontier dedupes on
+path **+ query**. So `/item.html?id=1..3` were three frontier entries that each
+became a page — three entries in `model.pages` sharing one id. `diffModels`
+indexes by id, so it silently kept only the last. saucedemo's product pages are
+exactly this shape (`/inventory-item.html?id=0..5`), so the first real demo-app
+run would have produced six colliding pages.
+
+Fixed in two places: `enqueueTargets` now skips a URL whose prospective page id
+is already claimed (so the five redundant page loads never happen), and the
+capture path drops a page whose id is already present (covering redirects that
+land on a claimed pattern). Both record `reason: 'duplicate-pattern'` in
+`skipped`, so the collapse is reported rather than silent. Tests:
+`collapses query-parameterised URLs into one representative page` and
+`never emits two pages sharing an id`.
+
 ### Open items carried into Phase 2
 
 1. Run `flint explore` against saucedemo.com and one SPA (Conduit) from a

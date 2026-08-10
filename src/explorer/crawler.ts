@@ -48,7 +48,7 @@ export interface CrawlOptions {
 /** A page the crawler chose not to visit, and why. */
 export interface SkippedUrl {
   url: string;
-  reason: RejectReason | 'captcha' | 'nav-failed' | 'budget' | 'aborted';
+  reason: RejectReason | 'captcha' | 'nav-failed' | 'budget' | 'aborted' | 'duplicate-pattern';
   detail?: string;
 }
 
@@ -102,6 +102,16 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
   const seen = new Set<string>([dedupeKey(startUrl, policy.normalize)]);
   const pages: Page[] = [];
   const skipped: SkippedUrl[] = [];
+  /**
+   * Page ids already captured or queued. Page identity is the *normalized
+   * path*, while the frontier dedupes on path + query — so `/item?id=1` and
+   * `/item?id=2` are two frontier entries that would become two pages sharing
+   * one id. The master plan wants one representative page per pattern, so the
+   * pattern is tracked separately and the duplicates never enter the model.
+   */
+  const claimedPageIds = new Set<string>([
+    pageId(normalizePath(startUrl, policy.normalize), options.role),
+  ]);
 
   let loginWallSuspected: LoginWallDiagnosis | undefined;
   let sessionExpiry: SessionExpiry | undefined;
@@ -163,6 +173,27 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
         }
       }
 
+      // A redirect can land on a pattern already represented; keep the first
+      // capture and record the rest rather than emitting duplicate page ids.
+      if (pages.some((p) => p.id === captured.page.id)) {
+        skipped.push({
+          url: item.url,
+          reason: 'duplicate-pattern',
+          detail: captured.page.urlPattern,
+        });
+        if (item.depth < explorer.maxDepth) {
+          enqueueTargets(captured.page, item, {
+            queue,
+            seen,
+            claimedPageIds,
+            policy,
+            skipped,
+            ...(options.role !== undefined ? { role: options.role } : {}),
+          });
+        }
+        continue;
+      }
+
       pages.push(captured.page);
       logger.info(
         { url: item.url, elements: captured.page.elements.length, depth: item.depth },
@@ -183,7 +214,14 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
       }
 
       if (item.depth >= explorer.maxDepth) continue;
-      enqueueTargets(captured.page, item, { queue, seen, policy, skipped });
+      enqueueTargets(captured.page, item, {
+        queue,
+        seen,
+        claimedPageIds,
+        policy,
+        skipped,
+        ...(options.role !== undefined ? { role: options.role } : {}),
+      });
     }
 
     // Anything still queued was cut short — report, never hide. Distinguish a
@@ -337,8 +375,11 @@ async function detectCaptcha(page: PwPage, patterns: string[]): Promise<string |
 interface EnqueueContext {
   queue: QueueItem[];
   seen: Set<string>;
+  /** Page ids already captured or queued — see `claimedPageIds` in `crawl`. */
+  claimedPageIds: Set<string>;
   policy: UrlPolicyOptions;
   skipped: SkippedUrl[];
+  role?: string;
 }
 
 /**
@@ -360,6 +401,17 @@ function enqueueTargets(captured: Page, item: QueueItem, ctx: EnqueueContext): v
     const key = dedupeKey(decision.url, ctx.policy.normalize);
     if (ctx.seen.has(key)) continue;
     ctx.seen.add(key);
+
+    // Collapse parameterised URLs before spending a page load on them: six
+    // `/inventory-item.html?id=N` links are one page in the model, so only the
+    // first is worth visiting.
+    const prospectiveId = pageId(normalizePath(decision.url, ctx.policy.normalize), ctx.role);
+    if (ctx.claimedPageIds.has(prospectiveId)) {
+      ctx.skipped.push({ url: decision.url, reason: 'duplicate-pattern' });
+      continue;
+    }
+    ctx.claimedPageIds.add(prospectiveId);
+
     ctx.queue.push({
       url: decision.url,
       depth: item.depth + 1,
