@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Local test scratch for `testgen init` runs
+/tmp-init/
+
+# Target-project pipeline artifacts (should be committed in real projects, ignored here)
+.testgen/
