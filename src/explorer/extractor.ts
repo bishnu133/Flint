@@ -248,7 +248,11 @@ async function readFacts(
 
   const role = raw.explicitRole ?? implicitRole(raw.tagName);
   // Accessible name: aria-label wins, then the label, then visible text.
-  const name = raw.ariaLabel ?? raw.label ?? raw.text;
+  // ARIA accessible-name precedence: aria-label > <label> > placeholder > text.
+  // placeholder must be in this chain — for a bare `<input placeholder="X">`
+  // the accessible name IS "X", so `getByRole('textbox', {name:'X'})` matches.
+  // Omitting it costs a role candidate (85) and leaves placeholder (65) on top.
+  const name = raw.ariaLabel ?? raw.label ?? raw.placeholder ?? raw.text;
 
   return {
     tagName: raw.tagName,

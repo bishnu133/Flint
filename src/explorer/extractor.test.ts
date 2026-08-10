@@ -109,6 +109,31 @@ describe('extractPage', () => {
     );
   });
 
+  it('uses placeholder as the accessible name, so a role candidate exists', async () => {
+    // Regression: saucedemo's inputs have only a placeholder. Without this,
+    // the element topped out at placeholder (65) and lost the role (85).
+    await setContent('<input placeholder="Username">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.name).toBe('Username');
+    const role = el.selectorCandidates.find((c) => c.strategy === 'role');
+    expect(role).toBeDefined();
+    expect(role?.unique).toBe(true);
+    expect(role?.score).toBeCloseTo(85, 10);
+    expect(el.selectorCandidates[0]?.strategy).toBe('role');
+  });
+
+  it('prefers aria-label over placeholder for the accessible name', async () => {
+    await setContent('<input aria-label="Email address" placeholder="you@x.com">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.name).toBe('Email address');
+  });
+
+  it('still prefers a <label> over placeholder', async () => {
+    await setContent('<label for="e">Your email</label><input id="e" placeholder="you@x.com">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.name).toBe('Your email');
+  });
+
   it('always produces a css fallback candidate', async () => {
     await setContent('<button>Bare</button>');
     const el = (await extractPage(page)).elements[0]!;

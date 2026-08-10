@@ -4,15 +4,18 @@ import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
 import { createLogger } from '../../shared/logger.js';
 import { FlintError } from '../../shared/errors.js';
-import { launchBrowser, createContext } from '../../explorer/browser.js';
+import { launchBrowser } from '../../explorer/browser.js';
+import { createAuthenticatedContext } from '../../explorer/auth.js';
 import { crawl } from '../../explorer/crawler.js';
 import {
   diffModels,
   formatDiff,
   modelPath,
+  readModel,
   tryReadModel,
   writeModel,
 } from '../../explorer/screen-model-store.js';
+import { validateModel, formatValidation } from '../../explorer/validator.js';
 
 /**
  * `flint explore` — build the Screen Model by exploring the live app.
@@ -31,6 +34,17 @@ export function registerExplore(program: Command): void {
     .option('--max-depth <n>', 'override explorer.maxDepth', parseIntArg)
     .option('--role <role>', 'capture the model for a named role')
     .option('--diff', 'compare against the stored model instead of replacing it', false)
+    .option(
+      '--validate',
+      're-resolve every stored top selector and report the break rate (no crawl)',
+      false,
+    )
+    .option(
+      '--min-resolve-rate <pct>',
+      'with --validate, fail below this percentage',
+      parseIntArg,
+      95,
+    )
     .option('--headed', 'run with a visible browser window', false)
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: ExploreOptions) => {
@@ -45,6 +59,8 @@ interface ExploreOptions {
   maxDepth?: number;
   role?: string;
   diff: boolean;
+  validate: boolean;
+  minResolveRate: number;
   headed: boolean;
   verbose: boolean;
 }
@@ -84,11 +100,26 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
 
   const browser = await launchBrowser({ headed: opts.headed });
   try {
-    const context = await createContext(browser, {
-      ...(config.auth.mode === 'storageState'
-        ? { storageStatePath: resolve(projectRoot, config.auth.storageStatePath) }
-        : {}),
-    });
+    const context = await createAuthenticatedContext(browser, { config, projectRoot, logger });
+
+    // --validate replays the stored model; it does not crawl.
+    if (opts.validate) {
+      const stored = readModel(modelPath(projectRoot, opts.role));
+      const report = await validateModel(context, stored, { logger });
+      console.log('');
+      console.log(formatValidation(report));
+      const pct = report.resolveRate * 100;
+      const threshold = opts.minResolveRate;
+      console.log('');
+      if (pct + 1e-9 < threshold) {
+        console.log(`FAIL: resolve rate ${pct.toFixed(1)}% is below the ${threshold}% threshold.`);
+        process.exitCode = 1;
+      } else {
+        console.log(`PASS: resolve rate ${pct.toFixed(1)}% meets the ${threshold}% threshold.`);
+      }
+      return;
+    }
+
     const result = await crawl(context, {
       config: effective,
       logger,
