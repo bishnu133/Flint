@@ -1,6 +1,6 @@
 # Environments
 
-> Record the environments TestGen may target. Exploration and generated runs
+> Record the environments Flint may target. Exploration and generated runs
 > should point at a **test** environment, never production.
 
 | Env | Base URL | envClass | Notes |

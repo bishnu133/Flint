@@ -15,23 +15,41 @@ Running log of deviations, additions, and open questions per phase.
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `pnpm build` clean                                 | ✅ `tsc -p tsconfig.build.json` exits 0                                                                |
 | `pnpm lint` clean                                  | ✅ `eslint .` exits 0, 0 warnings                                                                      |
-| `pnpm test` green                                  | ✅ **82 tests across 14 files** pass                                                                   |
+| `pnpm test` green                                  | ✅ **91 tests across 15 files** pass                                                                   |
 | `pnpm format:check` clean                          | ✅ prettier clean                                                                                      |
-| `testgen --help` lists all 8 commands              | ✅ `init, explore, index, plan, generate, verify, run, ci` (+ `hello-llm` smoke)                       |
-| `testgen init` produces a valid project            | ✅ 13 files, `{{baseUrl}}`/`{{projectName}}` substituted                                               |
+| `flint --help` lists all 8 commands                | ✅ `init, explore, index, plan, generate, verify, run, ci` (+ `hello-llm` smoke)                       |
+| `flint init` produces a valid project              | ✅ 13 files, `{{baseUrl}}`/`{{projectName}}` substituted                                               |
 | Re-running `init` never clobbers                   | ✅ TTY → prompt; non-TTY → skips existing (user edit preserved); `--force` overwrites; `--yes` accepts |
 | `hello-llm` fails actionably with no API key       | ✅ `error: ANTHROPIC_API_KEY is not set.` + hint (no stack trace)                                      |
 | Invalid config → friendly zod error naming the key | ✅ names `baseUrl`, `envClass`, etc.; hint `Fix the "baseUrl" key.`                                    |
+| `hello-llm` succeeds against the real API          | ✅ verified live — see below                                                                           |
 
-> `hello-llm`'s successful path (real structured call) was **not** exercised here
-> because no `ANTHROPIC_API_KEY` is available in this environment. The wiring is
-> covered by the no-key error path and by `FakeProvider` structured tests. Run
-> `testgen hello-llm` with a key set to confirm live.
+**Live LLM verification (2026-08-10, operator machine):** `flint hello-llm`
+completed a real structured call — model `claude-haiku-4-5-20251001`, 89 input /
+35 output tokens, 1309 ms, `stop_reason: end_turn`, response schema-validated.
+This exercises the full chain: prompt template loader → `AnthropicProvider` →
+structured-output validation → pino call logger. **All Phase 0 exit criteria are
+now met with evidence.**
+
+### Environment note — TLS-inspecting proxies
+
+The first live run failed with `SELF_SIGNED_CERT_IN_CHAIN`. Cause was a
+corporate TLS-inspecting proxy (Cloudflare Zero Trust Gateway): `curl` succeeded
+because macOS trusts the proxy's root CA via the system keychain, while Node
+ships its own CA bundle and ignores the keychain. Not a Flint defect.
+
+Fix on Node ≥ 22.15: `export NODE_OPTIONS=--use-system-ca`. On older Node,
+export the roots and set `NODE_EXTRA_CA_CERTS`. Never set
+`NODE_TLS_REJECT_UNAUTHORIZED=0` — it disables verification process-wide.
+
+Phase 1 will hit the same wall: Playwright downloads Chromium over HTTPS and the
+browser must trust the same proxy to reach the target app. Contributors behind
+an inspecting proxy should put the CA setting in their shell profile.
 
 ### Deviations from the master plan / kickoff
 
 - **None** in structure or scope. One location note: the master plan lives at
-  `reference/docs/testgen-master-development-plan.md` (not `docs/`), and the
+  `reference/docs/flint-master-development-plan.md` (not `docs/`), and the
   kickoff at `PHASE_0_KICKOFF.md`. Left as-is; treated `reference/docs/...` as
   the single source of truth.
 
@@ -42,7 +60,7 @@ Running log of deviations, additions, and open questions per phase.
   (excludes tests).
 - **zod v3** (not v4) for stable error-message shape, which the rejection tests
   assert on.
-- **jiti** added as a dependency to load `testgen.config.ts` (TypeScript config)
+- **jiti** added as a dependency to load `flint.config.ts` (TypeScript config)
   at runtime for `loadConfig`.
 - **eslint flat config** (v9) + `typescript-eslint` + `eslint-config-prettier`.
 - `exactOptionalPropertyTypes: false` in tsconfig so `foo?: T` fields accept an
@@ -126,9 +144,9 @@ non-unique × 0.3. Table-driven test asserts every strategy in both states.
 2. **`hello-llm` default model** is `claude-haiku-4-5` (override via `--model`
    or `ANTHROPIC_MODEL`). Confirm the exact model id/alias to standardize on.
 3. `exactOptionalPropertyTypes: false` — acceptable, or tighten?
-4. ~~Scaffolded config imports `defineConfig` from `'testgen'`~~ — **resolved in
+4. ~~Scaffolded config imports `defineConfig` from `'flint'`~~ — **resolved in
    PR review**: the template now uses a type-only import + `satisfies`, which is
-   erased at load time, so a freshly init-ed project loads without `testgen`
+   erased at load time, so a freshly init-ed project loads without `flint`
    installed (regression test loads the actual shipped template).
 
 ### PR review fixes (PR #1, pre-merge)
@@ -146,8 +164,45 @@ A code review of PR #1 found 8 issues; all fixed before merge:
 5. `FakeProvider` record mode without `delegate` or `fixtureDir` now fails fast
    at construction (before any paid delegate call).
 6. Corrupt/misshapen fixture files raise a `ProviderError` naming the file.
-7. `packageRoot()` verifies `name === "testgen"` instead of taking the first
+7. `packageRoot()` verifies `name === "flint"` instead of taking the first
    `package.json` found walking up.
+
+### Post-merge fixes
+
+8. **Connection-failure diagnostics.** `hello-llm` reported only the SDK's bare
+   `"Connection error."` on any network failure. `describeRequestFailure()` now
+   walks the error's `cause` chain (bounded, cycle-safe), extracts the Node
+   error code, and maps known codes to the thing to check — DNS/VPN,
+   `HTTPS_PROXY`, or `NODE_EXTRA_CA_CERTS` for TLS-inspecting proxies. This is
+   what identified the Cloudflare Gateway interception above. 7 tests.
+
+### Product rename: TestGen → Flint
+
+Requested by the operator after Phase 0 merged; done now because Phase 0 is the
+entire codebase and the cost only grows with each phase. 173 occurrences across
+33 files. **Pure rename — no behavior, schema shape, or control flow changed.**
+
+| Surface           | Before                   | After                  |
+| ----------------- | ------------------------ | ---------------------- |
+| Package / CLI bin | `testgen`                | `flint`                |
+| Project config    | `testgen.config.ts`      | `flint.config.ts`      |
+| Artifact dir      | `.testgen/`              | `.flint/`              |
+| Managed marker    | `/* @testgen:managed */` | `/* @flint:managed */` |
+| Suite tag         | `@testgen`               | `@flint`               |
+| Error classes     | `TestGenError`, …        | `FlintError`, …        |
+| Config types      | `TestGenConfig*`         | `FlintConfig*`         |
+| Master plan file  | `testgen-master-…md`     | `flint-master-…md`     |
+
+Schema **field names and shapes are untouched** — only the exported TypeScript
+identifiers and the config filename changed, so the CLAUDE.md rule-4 lock on
+schema contracts is not violated in substance. Recorded here as the operator's
+explicit approval of the identifier rename.
+
+Also corrected: CLAUDE.md pointed at `docs/…-master-development-plan.md`; the
+file actually lives at `reference/docs/`. Pointer now matches reality.
+
+Gates after rename: build, lint, format clean; 91 tests green; `flint --help`,
+`flint init`, and config load re-verified end to end.
 
 ### STOP
 

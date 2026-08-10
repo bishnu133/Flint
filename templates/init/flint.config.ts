@@ -1,6 +1,6 @@
 // Type-only import: erased at load time, so this config works even before the
-// `testgen` package is installed locally. Install it to get editor type checking.
-import type { TestGenConfigInput } from 'testgen';
+// `flint` package is installed locally. Install it to get editor type checking.
+import type { FlintConfigInput } from 'flint';
 
 export default {
   baseUrl: '{{baseUrl}}',
@@ -36,4 +36,4 @@ export default {
     logPrompts: false,
     verbose: false,
   },
-} satisfies TestGenConfigInput;
+} satisfies FlintConfigInput;

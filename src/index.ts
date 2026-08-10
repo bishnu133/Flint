@@ -1,5 +1,5 @@
 /**
- * Public API surface for TestGen.
+ * Public API surface for Flint.
  *
  * Target projects import `defineConfig` from here; downstream tooling and later
  * phases import schemas, the provider interface, and the template loader. The
@@ -15,13 +15,13 @@ export {
   type PromptTemplate,
 } from './generator/template-loader.js';
 export {
-  TestGenError,
+  FlintError,
   ConfigError,
   TemplateError,
   ProviderError,
   StructuredOutputError,
   ScaffoldError,
-  isTestGenError,
+  isFlintError,
 } from './shared/errors.js';
 export {
   SELECTOR_STRATEGIES,

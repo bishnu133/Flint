@@ -4,8 +4,8 @@ coverage/
 *.log
 .DS_Store
 
-# Local test scratch for `testgen init` runs
+# Local test scratch for `flint init` runs
 /tmp-init/
 
 # Target-project pipeline artifacts (should be committed in real projects, ignored here)
-.testgen/
+.flint/

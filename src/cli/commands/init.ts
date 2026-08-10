@@ -5,7 +5,7 @@ import { templatesDir } from '../../shared/paths.js';
 import { applyScaffold, detectConflicts, planScaffold } from '../scaffold.js';
 
 /**
- * `testgen init` — scaffold the target-project layout (testgen.config.ts, kb/,
+ * `flint init` — scaffold the target-project layout (flint.config.ts, kb/,
  * e2e/ skeleton) from `templates/init/`.
  *
  * Re-running on an existing project PROMPTS and never clobbers: without a TTY or
@@ -14,7 +14,7 @@ import { applyScaffold, detectConflicts, planScaffold } from '../scaffold.js';
 export function registerInit(program: Command): void {
   program
     .command('init')
-    .description('Scaffold a TestGen project (config, knowledge base, e2e skeleton)')
+    .description('Scaffold a Flint project (config, knowledge base, e2e skeleton)')
     .option('-d, --dir <dir>', 'target project directory', '.')
     .option('-u, --base-url <url>', 'application base URL', 'https://www.saucedemo.com')
     .option('-n, --name <name>', 'project name (defaults to the directory name)')
@@ -64,15 +64,15 @@ async function runInit(opts: InitOptions): Promise<void> {
     { overwrite },
   );
 
-  console.log(`\nTestGen project scaffolded in ${targetDir}`);
+  console.log(`\nFlint project scaffolded in ${targetDir}`);
   console.log(`  created: ${result.written.length} file(s)`);
   if (result.skipped.length > 0) {
     console.log(`  skipped (already present): ${result.skipped.length} file(s)`);
   }
   console.log('\nNext steps:');
-  console.log('  1. Edit testgen.config.ts (baseUrl, auth, models).');
+  console.log('  1. Edit flint.config.ts (baseUrl, auth, models).');
   console.log('  2. Write a feature spec under kb/features/.');
-  console.log('  3. Run `testgen hello-llm` to verify LLM wiring (needs ANTHROPIC_API_KEY).');
+  console.log('  3. Run `flint hello-llm` to verify LLM wiring (needs ANTHROPIC_API_KEY).');
 }
 
 async function confirm(question: string): Promise<boolean> {

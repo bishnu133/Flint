@@ -1,12 +1,12 @@
-import type { TestGenConfigInput } from '../schemas/config.js';
+import type { FlintConfigInput } from '../schemas/config.js';
 
 /**
- * Identity helper that gives target-project `testgen.config.ts` files full type
+ * Identity helper that gives target-project `flint.config.ts` files full type
  * checking and editor autocomplete:
  *
- *   import { defineConfig } from 'testgen';
+ *   import { defineConfig } from 'flint';
  *   export default defineConfig({ ... });
  */
-export function defineConfig(config: TestGenConfigInput): TestGenConfigInput {
+export function defineConfig(config: FlintConfigInput): FlintConfigInput {
   return config;
 }

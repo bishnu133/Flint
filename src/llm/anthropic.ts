@@ -29,7 +29,7 @@ export interface AnthropicProviderOptions {
  * Anthropic implementation of {@link LLMProvider}.
  *
  * Throws an actionable {@link ProviderError} naming ANTHROPIC_API_KEY when no
- * key is available, so `testgen hello-llm` fails with guidance, not a stack
+ * key is available, so `flint hello-llm` fails with guidance, not a stack
  * trace. Never called from tests (FakeProvider only).
  */
 export class AnthropicProvider implements LLMProvider {
@@ -114,7 +114,7 @@ export class AnthropicProvider implements LLMProvider {
         throw new ProviderError(
           `Model output was truncated at ${req.maxTokens ?? DEFAULT_MAX_TOKENS} output tokens (stage: ${req.meta.stage}) — the JSON is incomplete.`,
           {
-            hint: 'Raise maxTokens for this call (see tokenBudgets in testgen.config.ts) or shrink the prompt.',
+            hint: 'Raise maxTokens for this call (see tokenBudgets in flint.config.ts) or shrink the prompt.',
           },
         );
       }

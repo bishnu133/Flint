@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { packageRoot } from '../shared/paths.js';
-import { isTestGenError } from '../shared/errors.js';
+import { isFlintError } from '../shared/errors.js';
 import { registerInit } from './commands/init.js';
 import { registerHelloLlm } from './commands/hello-llm.js';
 import { registerStubs } from './commands/stubs.js';
@@ -22,7 +22,7 @@ function version(): string {
 export function buildProgram(): Command {
   const program = new Command();
   program
-    .name('testgen')
+    .name('flint')
     .description('AI-powered Playwright test suite generator')
     .version(version(), '-V, --version');
 
@@ -41,7 +41,7 @@ async function main(): Promise<void> {
   try {
     await program.parseAsync(process.argv);
   } catch (err) {
-    if (isTestGenError(err)) {
+    if (isFlintError(err)) {
       console.error(`\nerror: ${err.message}`);
       if (err.hint) console.error(`hint: ${err.hint}`);
       process.exitCode = 1;

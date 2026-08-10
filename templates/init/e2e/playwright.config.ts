@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 /**
  * Playwright config for the generated suite. Runs standalone with
- * `npx playwright test` — zero runtime dependency on TestGen.
+ * `npx playwright test` — zero runtime dependency on Flint.
  */
 export default defineConfig({
   testDir: './tests',

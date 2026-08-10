@@ -1,13 +1,13 @@
 /**
- * Custom error classes for TestGen.
+ * Custom error classes for Flint.
  *
  * Every error carries an actionable message: it names the config key, env var,
  * file path, or template placeholder the user must fix. The CLI catches
- * {@link TestGenError} and prints `error.message` only — never a raw stack trace.
+ * {@link FlintError} and prints `error.message` only — never a raw stack trace.
  */
 
-/** Base class for all expected, user-actionable TestGen errors. */
-export class TestGenError extends Error {
+/** Base class for all expected, user-actionable Flint errors. */
+export class FlintError extends Error {
   /** Machine-readable code for programmatic handling and tests. */
   readonly code: string;
   /** Optional extra hint appended by the CLI presenter. */
@@ -22,41 +22,41 @@ export class TestGenError extends Error {
 }
 
 /** Configuration is missing, unreadable, or fails schema validation. */
-export class ConfigError extends TestGenError {
+export class ConfigError extends FlintError {
   constructor(message: string, options: { hint?: string; cause?: unknown } = {}) {
     super(message, { code: 'CONFIG', ...options });
   }
 }
 
 /** A prompt template is missing, malformed, or a placeholder was not supplied. */
-export class TemplateError extends TestGenError {
+export class TemplateError extends FlintError {
   constructor(message: string, options: { hint?: string; cause?: unknown } = {}) {
     super(message, { code: 'TEMPLATE', ...options });
   }
 }
 
 /** An LLM provider is misconfigured (e.g. missing API key) or a call failed. */
-export class ProviderError extends TestGenError {
+export class ProviderError extends FlintError {
   constructor(message: string, options: { hint?: string; cause?: unknown } = {}) {
     super(message, { code: 'PROVIDER', ...options });
   }
 }
 
 /** A structured LLM response failed schema validation after retries. */
-export class StructuredOutputError extends TestGenError {
+export class StructuredOutputError extends FlintError {
   constructor(message: string, options: { hint?: string; cause?: unknown } = {}) {
     super(message, { code: 'STRUCTURED_OUTPUT', ...options });
   }
 }
 
-/** The `testgen init` scaffolder refused to clobber existing files. */
-export class ScaffoldError extends TestGenError {
+/** The `flint init` scaffolder refused to clobber existing files. */
+export class ScaffoldError extends FlintError {
   constructor(message: string, options: { hint?: string; cause?: unknown } = {}) {
     super(message, { code: 'SCAFFOLD', ...options });
   }
 }
 
-/** Type guard for TestGen's own errors. */
-export function isTestGenError(err: unknown): err is TestGenError {
-  return err instanceof TestGenError;
+/** Type guard for Flint's own errors. */
+export function isFlintError(err: unknown): err is FlintError {
+  return err instanceof FlintError;
 }

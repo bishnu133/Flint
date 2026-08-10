@@ -8,7 +8,7 @@ import { promptsDir } from '../shared/paths.js';
 let dir: string;
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'testgen-templates-'));
+  dir = mkdtempSync(join(tmpdir(), 'flint-templates-'));
   writeFileSync(
     join(dir, 'good.md'),
     '<!-- version: 2 -->\nHello {{name}}, welcome to {{tool}}.\n',
@@ -41,8 +41,8 @@ describe('loadTemplate', () => {
 describe('renderTemplate', () => {
   it('substitutes all placeholders', () => {
     const t = loadTemplate('good', dir);
-    expect(renderTemplate(t, { name: 'Ada', tool: 'TestGen' })).toBe(
-      'Hello Ada, welcome to TestGen.\n',
+    expect(renderTemplate(t, { name: 'Ada', tool: 'Flint' })).toBe(
+      'Hello Ada, welcome to Flint.\n',
     );
   });
 
@@ -59,7 +59,7 @@ describe('renderTemplate', () => {
 
 describe('shipped hello-llm template', () => {
   it('loads and renders from the real prompts dir', () => {
-    const { text } = loadAndRender('hello-llm', { toolName: 'TestGen' }, promptsDir());
-    expect(text).toMatch(/TestGen/);
+    const { text } = loadAndRender('hello-llm', { toolName: 'Flint' }, promptsDir());
+    expect(text).toMatch(/Flint/);
   });
 });

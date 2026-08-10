@@ -1,7 +1,7 @@
 # Roles
 
 > If the app has multiple user roles, list them here. Configure `explorer.roles`
-> in `testgen.config.ts` to build a Screen Model per role.
+> in `flint.config.ts` to build a Screen Model per role.
 
 | Role | Description | How to authenticate |
 | --- | --- | --- |
