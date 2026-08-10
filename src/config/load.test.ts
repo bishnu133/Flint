@@ -75,6 +75,6 @@ describe('loadConfigFromPath', () => {
     const { config } = await loadConfigFromPath(file);
     expect(config.baseUrl).toBe('https://www.saucedemo.com');
     expect(config.envClass).toBe('test');
-    expect(config.models.planner).toBe('claude-sonnet-4-5');
+    expect(config.models.planner).toBe('claude-opus-5');
   });
 });

@@ -23,11 +23,21 @@ export default {
     roles: [],
   },
 
-  // Model per role. Planner/repair use a stronger model; coder a cheaper one.
+  // Model per pipeline role — change any of these to suit your cost/quality bar.
+  //
+  //   planner  Stage A: feature spec -> TestPlan JSON. Reasoning-heavy; the plan
+  //            determines the quality of everything downstream. Use the best model.
+  //   coder    Stage B: TestPlan -> Playwright TypeScript. Runs at temperature 0
+  //            against an explicit plan, so a mid-tier model is usually plenty.
+  //   repair   Phase 5: diagnose a failing test and patch it. Reasoning-heavy.
+  //
+  // Available (most -> least capable): claude-opus-5, claude-sonnet-5,
+  // claude-haiku-4-5. Raise `coder` to claude-opus-5 for maximum code quality,
+  // or drop it to claude-haiku-4-5 to cut cost on large suites.
   models: {
-    planner: 'claude-sonnet-4-5',
-    coder: 'claude-haiku-4-5',
-    repair: 'claude-sonnet-4-5',
+    planner: 'claude-opus-5',
+    coder: 'claude-sonnet-5',
+    repair: 'claude-opus-5',
   },
 
   dialect: 'playwright-pom',

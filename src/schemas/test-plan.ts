@@ -70,6 +70,22 @@ export type PlanStep = z.infer<typeof PlanStepSchema>;
 export const CasePrioritySchema = z.enum(['p0', 'p1', 'p2']);
 export type CasePriority = z.infer<typeof CasePrioritySchema>;
 
+/**
+ * What the Emitter (Phase 4) should DO with this case. The Planner (Phase 3)
+ * decides the status by cross-referencing the Suite Index coverage map and the
+ * Screen Model; the Emitter never re-decides it.
+ *
+ * | status              | Planner sets it when…                                        | Emitter does…                                    |
+ * | ------------------- | ------------------------------------------------------------ | ------------------------------------------------ |
+ * | `new`               | No existing test covers this behaviour.                        | Writes a brand-new test.                          |
+ * | `skipped-duplicate` | Suite Index already covers it. Requires `duplicateOf`.         | Writes nothing; the case is a reviewable record.  |
+ * | `update-existing`   | A test exists but the spec changed. Should name its target in `duplicateOf` — **not currently enforced, see PHASE_NOTES open question 5**. | Edits in place if managed; sibling file if hand-edited. |
+ * | `blocked`           | The spec needs UI absent from the Screen Model. Requires `blockedReason`. | Emits `test.fixme()` carrying the reason. |
+ *
+ * `blocked` exists to enforce core principle #1 (ground before you generate):
+ * when a spec references an element exploration never saw, the planner must
+ * surface that gap rather than invent a selector.
+ */
 export const CaseStatusSchema = z.enum(['new', 'skipped-duplicate', 'update-existing', 'blocked']);
 export type CaseStatus = z.infer<typeof CaseStatusSchema>;
 
