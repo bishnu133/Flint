@@ -144,7 +144,21 @@ non-unique × 0.3. Table-driven test asserts every strategy in both states.
 2. **`hello-llm` default model** is `claude-haiku-4-5` (override via `--model`
    or `ANTHROPIC_MODEL`). Confirm the exact model id/alias to standardize on.
 3. `exactOptionalPropertyTypes: false` — acceptable, or tighten?
-4. ~~Scaffolded config imports `defineConfig` from `'flint'`~~ — **resolved in
+4. **`update-existing` has no enforced target.** `skipped-duplicate` requires
+   `duplicateOf`, but `update-existing` does not — yet the Phase 4 Emitter
+   cannot act on "update an existing test" without knowing _which_ test. B4
+   scopes `duplicateOf` to "when skipped", so the schema matches B4 as written,
+   but the gap looks unintentional. Options: (a) require `duplicateOf` for
+   `update-existing` too (one line in the existing `superRefine`), or (b) leave
+   it and have Phase 3 match by title within the feature. Recommend (a) —
+   explicit beats inferred, and this is the last cheap moment to change it.
+5. **Model defaults updated** (resolves the earlier open question 2): planner
+   and repair now default to `claude-opus-5`, coder to `claude-sonnet-5`. The
+   scaffolded `flint.config.ts` documents the tradeoff inline so users can tune
+   per role. `hello-llm` keeps `claude-haiku-4-5` as its default — it only
+   proves wiring, so spending Opus tokens on it is waste; override with
+   `--model` or `ANTHROPIC_MODEL`.
+6. ~~Scaffolded config imports `defineConfig` from `'flint'`~~ — **resolved in
    PR review**: the template now uses a type-only import + `satisfies`, which is
    erased at load time, so a freshly init-ed project loads without `flint`
    installed (regression test loads the actual shipped template).

@@ -5,9 +5,9 @@ const minimalValid = {
   baseUrl: 'https://app.example.com',
   envClass: 'test',
   models: {
-    planner: 'claude-sonnet-4-5',
-    coder: 'claude-haiku-4-5',
-    repair: 'claude-sonnet-4-5',
+    planner: 'claude-opus-5',
+    coder: 'claude-sonnet-5',
+    repair: 'claude-opus-5',
   },
 };
 
