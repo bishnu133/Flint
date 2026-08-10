@@ -140,7 +140,16 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
       // A login wall on a page we had already got past means the session died.
       // The master plan allows exactly one re-auth, then continue; if that
       // fails the crawl stops and keeps the partial model.
-      if (item.depth > 0 && (await looksLikeLoginWall(page).catch(() => false))) {
+      //
+      // Only meaningful when a session exists to expire. Crawled anonymously,
+      // an app's /login and /register pages are ordinary content — treating
+      // their password fields as expiry would abort the crawl of any app that
+      // links to its own sign-in page (Conduit does, from every navbar).
+      if (
+        config.auth.mode !== 'none' &&
+        item.depth > 0 &&
+        (await looksLikeLoginWall(page).catch(() => false))
+      ) {
         if (reauthUsed || options.reauth === undefined) {
           sessionExpiry = {
             url: item.url,

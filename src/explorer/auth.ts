@@ -216,12 +216,31 @@ export async function performCredentialLogin(
 
   // Still on a password field ⇒ the login did not take. Fail loudly rather
   // than crawling an anonymous session and reporting an empty app.
-  const stillOnLogin = await firstVisible(page, PASSWORD_SELECTORS);
-  if (stillOnLogin !== undefined) {
+  //
+  // Checked with a bounded wait, not instantly: an SPA login submits over XHR
+  // and swaps the form out client-side, so at `domcontentloaded` the password
+  // field is momentarily still there. An instant read fails every SPA login.
+  const gone = await waitForPasswordGone(page, LOGIN_SETTLE_MS);
+  if (!gone) {
     throw new FlintError('Login appears to have failed — a password field is still visible.', {
       code: 'AUTH',
       hint: 'Check auth.username / auth.password, or whether the app shows an error (locked-out user, CAPTCHA).',
     });
+  }
+}
+
+/** How long a login gets to settle before it is declared failed. */
+const LOGIN_SETTLE_MS = 5_000;
+const LOGIN_POLL_MS = 250;
+
+/** True once no password field is visible, polling up to `timeoutMs`. */
+async function waitForPasswordGone(page: Page, timeoutMs: number): Promise<boolean> {
+  const started = Date.now();
+  for (;;) {
+    const password = await firstVisible(page, PASSWORD_SELECTORS);
+    if (password === undefined) return true;
+    if (Date.now() - started >= timeoutMs) return false;
+    await new Promise((r) => setTimeout(r, LOGIN_POLL_MS));
   }
 }
 

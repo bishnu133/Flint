@@ -402,6 +402,43 @@ land on a claimed pattern). Both record `reason: 'duplicate-pattern'` in
 `collapses query-parameterised URLs into one representative page` and
 `never emits two pages sharing an id`.
 
+### Pre-test review pass (operator-requested) — three defects found and fixed
+
+A line-by-line walk of the implementation against the master plan's Phase 1
+scenario list, done before handing the build over for local testing. All three
+defects shared a shape: correct against the fixtures they were built with,
+wrong against a real app the plan explicitly names.
+
+1. **Anonymous crawls aborted on in-app login pages.** The session-expiry
+   check fired on any password field at depth > 0, regardless of auth mode.
+   Conduit links `/login` and `/register` from every navbar; crawled with
+   `auth.mode: "none"`, hitting either page triggered "session expired", the
+   CLI's ever-present reauth callback threw (mode none cannot re-auth), and the
+   whole crawl stopped with a partial model. A session cannot expire if none
+   was ever established — the check is now gated on `auth.mode !== 'none'`.
+   Test: `treats an in-app login page as content when crawling anonymously`.
+
+2. **The validator reported every iframe element as broken.** Elements inside
+   same-origin iframes are verified in their child frame and stored with
+   `framePath`, but `validateModel` resolved everything in the main frame —
+   guaranteed 0 matches, on every run, for exactly the elements the plan's
+   iframe scenario exists for. The validator now resolves each element in its
+   recorded frame (matched by frame name or URL; a missing frame is itself
+   drift). Test: `resolves elements inside same-origin iframes in their own
+   frame`.
+
+3. **Credential login failed falsely on SPA logins.** After submitting, the
+   password field was checked *instantly*. An SPA login submits over XHR and
+   swaps the form out client-side, so the field is still visible at
+   `domcontentloaded` — every SPA login was declared failed. Works on
+   saucedemo (real navigation), broken on the app class Phase 1 targets. The
+   check is now a bounded settle wait (5 s, 250 ms poll) for the password
+   field to disappear. Cost on genuinely bad credentials: the failure now
+   takes 5 s to report instead of 0 — acceptable for a correct verdict.
+   Test: `waits out an SPA login that swaps the form without navigating`.
+
+Post-review gates: 330 tests, 26 files; build, lint, format clean.
+
 ### Open items carried into Phase 2
 
 1. Run `flint explore` against saucedemo.com and one SPA (Conduit) from a

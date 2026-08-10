@@ -1,4 +1,4 @@
-import type { BrowserContext } from '@playwright/test';
+import type { BrowserContext, Frame, Page as PwPage } from '@playwright/test';
 import type { ScreenModel, SelectorCandidate } from '../schemas/screen-model.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
 import { locatorFor } from './extractor.js';
@@ -90,9 +90,16 @@ export async function validateModel(
           continue;
         }
         report.selectorsChecked += 1;
-        const matched = await locatorFor(page.mainFrame(), best)
-          .count()
-          .catch(() => 0);
+        // Resolve in the frame the element was captured in. An iframe element
+        // was verified inside its child frame; checking the main frame would
+        // report every such element as broken on every run.
+        const frame = frameFor(page, element.framePath);
+        const matched =
+          frame === undefined
+            ? 0
+            : await locatorFor(frame, best)
+                .count()
+                .catch(() => 0);
         if (matched === 1) {
           report.selectorsResolved += 1;
         } else {
@@ -114,6 +121,17 @@ export async function validateModel(
   report.resolveRate =
     report.selectorsChecked === 0 ? 1 : report.selectorsResolved / report.selectorsChecked;
   return report;
+}
+
+/**
+ * Find the frame an element was captured in. `framePath` stores what the
+ * extractor recorded: `frame.name() || frame.url()` — match either. Undefined
+ * means the frame no longer exists, which is itself drift.
+ */
+function frameFor(page: PwPage, framePath: string[] | undefined): Frame | undefined {
+  if (framePath === undefined || framePath.length === 0) return page.mainFrame();
+  const key = framePath[0]!;
+  return page.frames().find((f) => f !== page.mainFrame() && (f.name() === key || f.url() === key));
 }
 
 /** Human-readable summary for the CLI. */

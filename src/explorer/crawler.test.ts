@@ -28,6 +28,7 @@ const SITE: Record<string, string> = {
   </body></html>`,
   '/about': `<html lang="en"><body>
     <h1>About</h1><a href="/">Home</a>
+    <a href="/wall">Sign in</a>
     <button data-testid="about-cta">Contact</button>
   </body></html>`,
   '/products': `<html lang="en"><body>
@@ -244,6 +245,18 @@ describe('crawl', () => {
     const result = await crawl(context, { config: config() });
     expect(result.loginWallSuspected).toBeUndefined();
   }, 60_000);
+
+  it('treats an in-app login page as content when crawling anonymously', async () => {
+    // Conduit links /login and /register from its navbar. With auth "none"
+    // there is no session to expire, so a password field mid-crawl must be
+    // catalogued like any other page — not aborted as session expiry.
+    const result = await crawl(context, {
+      config: config({ auth: { mode: 'none' } }),
+      reauth: () => Promise.reject(new Error('must never be called for auth none')),
+    });
+    expect(result.sessionExpiry).toBeUndefined();
+    expect(result.model.pages.map((p) => p.urlPattern)).toContain('/wall');
+  }, 90_000);
 
   it('collapses query-parameterised URLs into one representative page', async () => {
     const result = await crawl(context, { config: config(), startUrl: `${baseUrl}/catalog` });

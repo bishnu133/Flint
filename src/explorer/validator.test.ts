@@ -25,6 +25,17 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     const path = (req.url ?? '/').split('?')[0]!;
     res.writeHead(200, { 'content-type': 'text/html' });
+    if (path === '/framed') {
+      res.end(
+        `<html lang="en"><body><h1>Host</h1>
+         <iframe name="widget" src="/frame-inner"></iframe></body></html>`,
+      );
+      return;
+    }
+    if (path === '/frame-inner') {
+      res.end('<html lang="en"><body><button data-testid="inner-cta">Inner</button></body></html>');
+      return;
+    }
     if (path !== '/') {
       res.end('<html lang="en"><body><h1>Other</h1></body></html>');
       return;
@@ -156,6 +167,25 @@ describe('validateModel', () => {
     // Same app, unchanged — the only way this can fail is the validator
     // reading the page before the client has painted it.
     const report = await validateModel(context, model);
+    expect(report.resolveRate).toBe(1);
+    expect(report.broken).toHaveLength(0);
+  }, 90_000);
+
+  it('resolves elements inside same-origin iframes in their own frame', async () => {
+    variant = 'original';
+    const result = await crawl(context, {
+      config: config(),
+      startUrl: `${baseUrl}/framed`,
+      interactionPass: false,
+    });
+    const framed = result.model.pages.find((p) => p.urlPattern === '/framed')!;
+    const inner = framed.elements.find((e) => e.testId === 'inner-cta');
+    // Captured with its frame recorded...
+    expect(inner?.framePath).toEqual(['widget']);
+
+    // ...and the validator must look for it there, not in the main frame,
+    // where it would count as broken on every run.
+    const report = await validateModel(context, result.model);
     expect(report.resolveRate).toBe(1);
     expect(report.broken).toHaveLength(0);
   }, 90_000);

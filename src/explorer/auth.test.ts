@@ -47,6 +47,28 @@ beforeAll(async () => {
       res.end(loginPage());
       return;
     }
+    // An SPA-style login: submit is intercepted, no navigation ever happens,
+    // and the form is swapped out client-side after a short "API call".
+    if (path === '/spa-login') {
+      res.writeHead(200, { 'content-type': 'text/html' });
+      res.end(`<html lang="en"><body>
+        <h1>Sign in</h1>
+        <form id="f">
+          <input name="username" placeholder="Username">
+          <input name="password" type="password" placeholder="Password">
+          <button type="submit" id="login-button">Login</button>
+        </form>
+        <script>
+          document.getElementById('f').addEventListener('submit', function (e) {
+            e.preventDefault();
+            setTimeout(function () {
+              document.body.innerHTML = '<h1>Dashboard</h1>';
+            }, 400);
+          });
+        </script>
+      </body></html>`);
+      return;
+    }
     // A public page with no login form at all — used to prove that credential
     // login fails loudly rather than silently proceeding unauthenticated.
     if (path === '/public') {
@@ -133,6 +155,21 @@ describe('auth mode: credentials', () => {
     await page.goto(`${baseUrl}/dashboard`);
     expect(await page.locator('h1').innerText()).toBe('Dashboard');
     expect(await looksLikeLoginWall(page)).toBe(false);
+    await ctx.close();
+  }, 60_000);
+
+  it('waits out an SPA login that swaps the form without navigating', async () => {
+    // The password field is still visible at domcontentloaded; an instant
+    // check would declare failure. The bounded settle wait must not.
+    const ctx = await createAuthenticatedContext(browser, {
+      config: config({
+        mode: 'credentials',
+        username: 'good',
+        password: 'pw',
+        loginUrl: `${baseUrl}/spa-login`,
+      }),
+      projectRoot: dir,
+    });
     await ctx.close();
   }, 60_000);
 
