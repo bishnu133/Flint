@@ -11,7 +11,7 @@ import { z } from 'zod';
  * Fields beyond the abridged B4 sketch (recorded in PHASE_NOTES.md), added now
  * because the schema locks after Phase 0 and Phase 3 explicitly requires them:
  *   - TestCase.status 'blocked' + blockedReason (spec references missing UI)
- *   - TestCase.dataNeeds (data prerequisites surfaced to humans)
+ *   - TestCase.prerequisites (structured setup a case needs before it can pass)
  *   - TestCase.acceptanceRefs (cross-reference to spec acceptance criteria)
  *   - Assertion.kind enum (visible/hidden/text/url/count/value/toast)
  *   - TestPlan.openQuestions (planner asks instead of guessing on p0)
@@ -79,15 +79,62 @@ export type CasePriority = z.infer<typeof CasePrioritySchema>;
  * | ------------------- | ------------------------------------------------------------ | ------------------------------------------------ |
  * | `new`               | No existing test covers this behaviour.                        | Writes a brand-new test.                          |
  * | `skipped-duplicate` | Suite Index already covers it. Requires `duplicateOf`.         | Writes nothing; the case is a reviewable record.  |
- * | `update-existing`   | A test exists but the spec changed. Should name its target in `duplicateOf` — **not currently enforced, see PHASE_NOTES open question 5**. | Edits in place if managed; sibling file if hand-edited. |
+ * | `update-existing`   | A test exists but the spec changed. Requires `duplicateOf`.    | Edits in place if managed; sibling file if hand-edited. |
  * | `blocked`           | The spec needs UI absent from the Screen Model. Requires `blockedReason`. | Emits `test.fixme()` carrying the reason. |
  *
  * `blocked` exists to enforce core principle #1 (ground before you generate):
  * when a spec references an element exploration never saw, the planner must
  * surface that gap rather than invent a selector.
+ *
+ * Status is deliberately NOT the place to record "this needs test data or
+ * config first" — that is an independent axis; see {@link PrerequisiteSchema}.
  */
 export const CaseStatusSchema = z.enum(['new', 'skipped-duplicate', 'update-existing', 'blocked']);
 export type CaseStatus = z.infer<typeof CaseStatusSchema>;
+
+/** What kind of setup a prerequisite describes. */
+export const PrerequisiteKindSchema = z.enum([
+  /** Seeded records the test reads or acts on. */
+  'data',
+  /** A config value or environment variable the suite needs. */
+  'config',
+  /** A third-party sandbox or dependency that must be reachable. */
+  'external-service',
+  /** Anything a human must do by hand before the test can pass. */
+  'manual',
+]);
+export type PrerequisiteKind = z.infer<typeof PrerequisiteKindSchema>;
+
+/**
+ * Something that must exist before a case can PASS — as opposed to
+ * {@link CaseStatusSchema}, which says what the Emitter should WRITE.
+ *
+ * The two axes are independent on purpose: a case can be `new` and need data,
+ * or `update-existing` and need data. Collapsing them into one enum would
+ * force the Emitter to choose between knowing where to write and knowing
+ * whether the test is runnable.
+ *
+ * Emitter rule (Phase 4), in order:
+ *   1. `blocked`                → `test.fixme()` carrying `blockedReason`
+ *   2. `prerequisites` non-empty → the COMPLETE test, emitted as `test.skip()`
+ *                                  with a `@needs-setup` tag and each
+ *                                  prerequisite as a comment
+ *   3. otherwise                 → a live test
+ *
+ * Step 2 matters for Phase 5: a skipped test never runs, so the repair loop
+ * cannot waste iterations "fixing" correct code, and a missing fixture can
+ * never be misreported as a possible application defect.
+ */
+export const PrerequisiteSchema = z
+  .object({
+    kind: PrerequisiteKindSchema,
+    /** Human-readable, specific: "a user with at least 3 completed orders". */
+    description: z.string().min(1, 'prerequisite description must not be empty'),
+    /** Config key or env var name, when `kind` is 'config'. */
+    key: z.string().optional(),
+  })
+  .strict();
+export type Prerequisite = z.infer<typeof PrerequisiteSchema>;
 
 export const TestCaseSchema = z
   .object({
@@ -96,12 +143,19 @@ export const TestCaseSchema = z
     priority: CasePrioritySchema,
     tags: z.array(z.string()),
     status: CaseStatusSchema,
-    /** Suite-index test id this case duplicates, when status is skipped-duplicate. */
+    /**
+     * Suite-index test id this case targets. Required for both
+     * `skipped-duplicate` (what it duplicates) and `update-existing` (what it
+     * updates) — the Emitter cannot act on either without a target.
+     */
     duplicateOf: z.string().optional(),
     /** Reason a case is blocked (e.g. element not found in exploration). */
     blockedReason: z.string().optional(),
-    /** Data prerequisites so humans see required test data. */
-    dataNeeds: z.array(z.string()).optional(),
+    /**
+     * What must exist before this case can pass. Non-empty ⇒ the Emitter still
+     * writes the full test, but marks it skipped. See {@link PrerequisiteSchema}.
+     */
+    prerequisites: z.array(PrerequisiteSchema).optional(),
     /** Acceptance-criterion ids from the feature spec this case covers. */
     acceptanceRefs: z.array(z.string()).optional(),
     steps: z.array(PlanStepSchema),
@@ -112,6 +166,13 @@ export const TestCaseSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "skipped-duplicate case requires 'duplicateOf'",
+        path: ['duplicateOf'],
+      });
+    }
+    if (testCase.status === 'update-existing' && testCase.duplicateOf === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "update-existing case requires 'duplicateOf' naming the test it updates",
         path: ['duplicateOf'],
       });
     }

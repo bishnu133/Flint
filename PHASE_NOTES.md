@@ -6,7 +6,7 @@ Running log of deviations, additions, and open questions per phase.
 
 ## Phase 0 — Foundation
 
-**Status:** complete, ready for schema review.
+**Status:** COMPLETE — schemas signed off and locked 2026-08-10.
 **Date:** 2026-08-10
 
 ### Exit criteria — evidence
@@ -15,7 +15,7 @@ Running log of deviations, additions, and open questions per phase.
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `pnpm build` clean                                 | ✅ `tsc -p tsconfig.build.json` exits 0                                                                |
 | `pnpm lint` clean                                  | ✅ `eslint .` exits 0, 0 warnings                                                                      |
-| `pnpm test` green                                  | ✅ **91 tests across 15 files** pass                                                                   |
+| `pnpm test` green                                  | ✅ **98 tests across 15 files** pass                                                                   |
 | `pnpm format:check` clean                          | ✅ prettier clean                                                                                      |
 | `flint --help` lists all 8 commands                | ✅ `init, explore, index, plan, generate, verify, run, ci` (+ `hello-llm` smoke)                       |
 | `flint init` produces a valid project              | ✅ 13 files, `{{baseUrl}}`/`{{projectName}}` substituted                                               |
@@ -103,15 +103,15 @@ appVersionHint?, pages[]` (B4 sketched only Page/Element/SelectorCandidate).
 **test-plan.ts**:
 
 - `TestCase.status` adds `blocked` (+ `blockedReason`), because Phase 3 requires
-  emitting blocked cases; `dataNeeds?`, `acceptanceRefs?`.
+  emitting blocked cases; `prerequisites?`, `acceptanceRefs?`.
 - `Assertion.kind` enum: `visible | hidden | text | url | count | value | toast`;
   `Assertion.expected` = `string | number | boolean`.
 - `TestPlan.openQuestions?` (Phase 3 "ask, don't guess").
 - Cross-field `superRefine`s: assert⇒assertion, fill/select⇒value,
-  skipped-duplicate⇒duplicateOf, blocked⇒blockedReason.
+  skipped-duplicate⇒duplicateOf, update-existing⇒duplicateOf, blocked⇒blockedReason.
 - These forward-looking fields were added **now on purpose**: schemas lock after
-  Phase 0, and Phase 3 explicitly needs them — adding later would require a
-  schema-change approval. **Please confirm this is acceptable.**
+  Phase 0, and Phase 3 explicitly needs them. **Approved by the operator on
+  2026-08-10** — see "Open questions" below.
 
 **suite-index.ts**:
 
@@ -135,33 +135,62 @@ Defined once in `src/shared/selector-ranking.ts` (exported constants + pure
 `scoreSelector`): testid 100, role 85, label 75, placeholder 65, text 55, css 30;
 non-unique × 0.3. Table-driven test asserts every strategy in both states.
 
-### Open questions
+### Open questions — ALL RESOLVED (schemas signed off 2026-08-10)
 
-1. **Forward-looking schema fields** (blocked status, `openQuestions`,
-   `dataNeeds`, explorer agent-mode enum) added pre-lock to avoid a later
-   schema-change approval. OK, or keep schemas minimal-to-B4 and accept a
-   controlled change at Phase 3?
-2. **`hello-llm` default model** is `claude-haiku-4-5` (override via `--model`
-   or `ANTHROPIC_MODEL`). Confirm the exact model id/alias to standardize on.
-3. `exactOptionalPropertyTypes: false` — acceptable, or tighten?
-4. **`update-existing` has no enforced target.** `skipped-duplicate` requires
-   `duplicateOf`, but `update-existing` does not — yet the Phase 4 Emitter
-   cannot act on "update an existing test" without knowing _which_ test. B4
-   scopes `duplicateOf` to "when skipped", so the schema matches B4 as written,
-   but the gap looks unintentional. Options: (a) require `duplicateOf` for
-   `update-existing` too (one line in the existing `superRefine`), or (b) leave
-   it and have Phase 3 match by title within the feature. Recommend (a) —
-   explicit beats inferred, and this is the last cheap moment to change it.
-5. **Model defaults updated** (resolves the earlier open question 2): planner
-   and repair now default to `claude-opus-5`, coder to `claude-sonnet-5`. The
-   scaffolded `flint.config.ts` documents the tradeoff inline so users can tune
-   per role. `hello-llm` keeps `claude-haiku-4-5` as its default — it only
-   proves wiring, so spending Opus tokens on it is waste; override with
-   `--model` or `ANTHROPIC_MODEL`.
-6. ~~Scaffolded config imports `defineConfig` from `'flint'`~~ — **resolved in
-   PR review**: the template now uses a type-only import + `satisfies`, which is
-   erased at load time, so a freshly init-ed project loads without `flint`
-   installed (regression test loads the actual shipped template).
+1. ~~**Forward-looking schema fields**~~ — **approved.** The four case statuses,
+   `openQuestions`, `acceptanceRefs`, and the explorer agent-mode enum stay.
+2. ~~**`hello-llm` default model**~~ — **resolved.** Planner and repair default
+   to `claude-opus-5`, coder to `claude-sonnet-5`; the scaffolded
+   `flint.config.ts` documents the per-role tradeoff so users can tune it.
+   `hello-llm` keeps `claude-haiku-4-5` — it only proves wiring, so Opus tokens
+   there are waste; override with `--model` or `ANTHROPIC_MODEL`.
+3. `exactOptionalPropertyTypes: false` — accepted as-is.
+4. ~~**`update-existing` has no enforced target**~~ — **resolved: option (a).**
+   `update-existing` now requires `duplicateOf` naming the test it updates,
+   exactly as `skipped-duplicate` does. Message: `update-existing case requires
+'duplicateOf' naming the test it updates`.
+5. ~~Scaffolded config imports `defineConfig` from `'flint'`~~ — **resolved:**
+   type-only import + `satisfies`, erased at load time.
+
+### Final schema change before lock — `TestCase.prerequisites`
+
+The operator asked for a way to express "this case needs test data or a config
+value before it can run." Reviewed and implemented as a **separate axis, not a
+fifth status**, for one reason: `new` / `skipped-duplicate` / `update-existing`
+/ `blocked` are mutually exclusive answers to _"what should the Emitter
+write?"_ — while "needs setup" answers _"can this run yet?"_ A case can be
+`new` **and** need data, or `update-existing` **and** need data. A fifth status
+would force a choice between the two and the Emitter needs both.
+
+`TestCase.dataNeeds: string[]` (informational only) is **replaced** by:
+
+```ts
+prerequisites?: Array<{
+  kind: 'data' | 'config' | 'external-service' | 'manual';
+  description: string;   // "a user with at least 3 completed orders"
+  key?: string;          // config key / env var, when kind is 'config'
+}>
+```
+
+`kb.ts`'s own `dataNeeds` is untouched — that is human-authored feature-spec
+frontmatter (planner _input_); `prerequisites` is planner _output_ per case.
+
+**Emitter contract (Phase 4), evaluated in order:**
+
+1. `blocked` → `test.fixme()` carrying `blockedReason`
+2. `prerequisites` non-empty → the COMPLETE test, emitted as `test.skip()` with
+   a `@needs-setup` tag and each prerequisite as a comment
+3. otherwise → a live test
+
+Rule 2 is what protects Phase 5: a skipped test never runs, so the repair loop
+cannot burn iterations "fixing" correct code, and a missing fixture can never be
+misreported as a possible application defect.
+
+### SCHEMAS LOCKED
+
+All schemas in `src/schemas/` are signed off as of 2026-08-10 and are now the
+frozen contract. Any further change requires explicit human approval per
+CLAUDE.md rule 4. Phase 1 is unblocked.
 
 ### PR review fixes (PR #1, pre-merge)
 

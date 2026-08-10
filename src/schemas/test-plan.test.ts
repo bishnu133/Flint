@@ -61,4 +61,80 @@ describe('TestPlanSchema', () => {
       expect(result.error.issues.some((i) => i.path.includes('blockedReason'))).toBe(true);
     }
   });
+
+  it('rejects an update-existing case without a target reference', () => {
+    const result = TestCaseSchema.safeParse({ ...validCase, status: 'update-existing' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes('duplicateOf'));
+      expect(issue?.message).toMatch(/update-existing case requires 'duplicateOf'/);
+    }
+  });
+
+  it('accepts update-existing when duplicateOf names the target', () => {
+    const parsed = TestCaseSchema.parse({
+      ...validCase,
+      status: 'update-existing',
+      duplicateOf: 'login.spec.ts::user can log in',
+    });
+    expect(parsed.duplicateOf).toBe('login.spec.ts::user can log in');
+  });
+});
+
+describe('TestCase.prerequisites', () => {
+  it('is independent of status — a new case can also need setup', () => {
+    const parsed = TestCaseSchema.parse({
+      ...validCase,
+      status: 'new',
+      prerequisites: [
+        { kind: 'data', description: 'A user with at least 3 completed orders' },
+        { kind: 'config', description: 'Stripe sandbox key', key: 'STRIPE_TEST_KEY' },
+      ],
+    });
+    expect(parsed.status).toBe('new');
+    expect(parsed.prerequisites).toHaveLength(2);
+    expect(parsed.prerequisites?.[1]?.key).toBe('STRIPE_TEST_KEY');
+  });
+
+  it('is independent of status — an update can also need setup', () => {
+    const parsed = TestCaseSchema.parse({
+      ...validCase,
+      status: 'update-existing',
+      duplicateOf: 'orders.spec.ts::history',
+      prerequisites: [{ kind: 'external-service', description: 'Payments sandbox reachable' }],
+    });
+    expect(parsed.status).toBe('update-existing');
+    expect(parsed.prerequisites?.[0]?.kind).toBe('external-service');
+  });
+
+  it('rejects an unknown prerequisite kind with an enum message', () => {
+    const result = TestCaseSchema.safeParse({
+      ...validCase,
+      prerequisites: [{ kind: 'database', description: 'seed it' }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find((i) => i.path.includes('kind'));
+      expect(issue?.message).toMatch(/data/);
+    }
+  });
+
+  it('rejects an empty prerequisite description', () => {
+    const result = TestCaseSchema.safeParse({
+      ...validCase,
+      prerequisites: [{ kind: 'manual', description: '' }],
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toMatch(/must not be empty/);
+    }
+  });
+
+  it('rejects an unknown key inside a prerequisite (strict)', () => {
+    const result = TestCaseSchema.safeParse({
+      ...validCase,
+      prerequisites: [{ kind: 'data', description: 'a user', seedScript: 'seed.sql' }],
+    });
+    expect(result.success).toBe(false);
+  });
 });
