@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { mkdtempSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -63,6 +63,59 @@ describe('FakeProvider', () => {
       responder: () => ({ text: '{"ok": "yes"}' }),
     });
     await expect(provider.structured(schema, req)).rejects.toThrow(/not valid for the schema/);
+  });
+
+  it('rejects record mode without a delegate at construction time', () => {
+    expect(() => new FakeProvider({ record: true, fixtureDir: '/tmp/x' })).toThrow(
+      /record mode requires a delegate/,
+    );
+  });
+
+  it('rejects record mode without a fixtureDir at construction time', () => {
+    const delegate = {
+      complete: async () => {
+        throw new Error('must never be called');
+      },
+      chat: async () => {
+        throw new Error('unused');
+      },
+      structured: async () => {
+        throw new Error('unused');
+      },
+    };
+    expect(() => new FakeProvider({ record: true, delegate })).toThrow(
+      /record mode requires a fixtureDir/,
+    );
+  });
+
+  it('reports a corrupt fixture file with an actionable error naming the file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'testgen-fixtures-bad-'));
+    const key = FakeProvider.keyFor({
+      method: 'complete',
+      model: 'fake-model',
+      purpose: meta.purpose,
+      payload: 'broken',
+    });
+    writeFileSync(join(dir, `${key}.json`), '{not json', 'utf8');
+    const provider = new FakeProvider({ fixtureDir: dir });
+    await expect(provider.complete(completionReq('broken'))).rejects.toThrow(
+      /fixture file is not valid JSON.*\.json/,
+    );
+  });
+
+  it('reports a fixture file with a wrong shape (missing text)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'testgen-fixtures-shape-'));
+    const key = FakeProvider.keyFor({
+      method: 'complete',
+      model: 'fake-model',
+      purpose: meta.purpose,
+      payload: 'shapeless',
+    });
+    writeFileSync(join(dir, `${key}.json`), '{"usage": {"inputTokens": 1}}', 'utf8');
+    const provider = new FakeProvider({ fixtureDir: dir });
+    await expect(provider.complete(completionReq('shapeless'))).rejects.toThrow(
+      /invalid shape.*missing string "text"/,
+    );
   });
 
   it('records to a fixture dir then replays it offline', async () => {

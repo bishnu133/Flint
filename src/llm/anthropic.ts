@@ -110,6 +110,15 @@ export class AnthropicProvider implements LLMProvider {
         prompt,
       );
 
+      if (result.stopReason === 'max_tokens') {
+        throw new ProviderError(
+          `Model output was truncated at ${req.maxTokens ?? DEFAULT_MAX_TOKENS} output tokens (stage: ${req.meta.stage}) — the JSON is incomplete.`,
+          {
+            hint: 'Raise maxTokens for this call (see tokenBudgets in testgen.config.ts) or shrink the prompt.',
+          },
+        );
+      }
+
       const validated = validateStructured(schema, result.text);
       if (validated.ok) {
         return {

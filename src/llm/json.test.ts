@@ -18,6 +18,11 @@ describe('parseJsonLoose', () => {
     expect(parseJsonLoose('{"note": "a } here"}')).toEqual({ note: 'a } here' });
   });
 
+  it('does not mangle valid JSON whose string values contain code fences', () => {
+    const input = '{"note": "run ```npm test``` then check ```lint``` too"}';
+    expect(parseJsonLoose(input)).toEqual({ note: 'run ```npm test``` then check ```lint``` too' });
+  });
+
   it('throws when no JSON is present', () => {
     expect(() => parseJsonLoose('no json at all')).toThrow(/No JSON/);
   });

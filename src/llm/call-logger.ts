@@ -32,9 +32,9 @@ export function logCall(
     latencyMs: fields.latencyMs,
     stopReason: fields.stopReason,
   };
-  if (options.logPrompts && options.prompt !== undefined) {
-    logger.debug({ ...base, prompt: options.prompt }, 'llm call');
-  } else {
-    logger.info(base, 'llm call');
-  }
+  // The call record is ALWAYS emitted at info level (CLAUDE.md: every LLM call
+  // logged). The raw prompt is attached only when logPrompts is enabled.
+  const payload =
+    options.logPrompts && options.prompt !== undefined ? { ...base, prompt: options.prompt } : base;
+  logger.info(payload, 'llm call');
 }

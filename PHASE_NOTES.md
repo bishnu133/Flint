@@ -15,7 +15,7 @@ Running log of deviations, additions, and open questions per phase.
 | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `pnpm build` clean                                 | ✅ `tsc -p tsconfig.build.json` exits 0                                                                |
 | `pnpm lint` clean                                  | ✅ `eslint .` exits 0, 0 warnings                                                                      |
-| `pnpm test` green                                  | ✅ **74 tests across 13 files** pass                                                                   |
+| `pnpm test` green                                  | ✅ **82 tests across 14 files** pass                                                                   |
 | `pnpm format:check` clean                          | ✅ prettier clean                                                                                      |
 | `testgen --help` lists all 8 commands              | ✅ `init, explore, index, plan, generate, verify, run, ci` (+ `hello-llm` smoke)                       |
 | `testgen init` produces a valid project            | ✅ 13 files, `{{baseUrl}}`/`{{projectName}}` substituted                                               |
@@ -126,9 +126,28 @@ non-unique × 0.3. Table-driven test asserts every strategy in both states.
 2. **`hello-llm` default model** is `claude-haiku-4-5` (override via `--model`
    or `ANTHROPIC_MODEL`). Confirm the exact model id/alias to standardize on.
 3. `exactOptionalPropertyTypes: false` — acceptable, or tighten?
-4. Scaffolded `testgen.config.ts` imports `defineConfig` from `'testgen'`, so a
-   target project must have `testgen` installed to load its config. Expected DX;
-   confirm.
+4. ~~Scaffolded config imports `defineConfig` from `'testgen'`~~ — **resolved in
+   PR review**: the template now uses a type-only import + `satisfies`, which is
+   erased at load time, so a freshly init-ed project loads without `testgen`
+   installed (regression test loads the actual shipped template).
+
+### PR review fixes (PR #1, pre-merge)
+
+A code review of PR #1 found 8 issues; all fixed before merge:
+
+1. `parseJsonLoose` now tries a direct `JSON.parse` before stripping code
+   fences (valid JSON containing ``` in string values was being mangled).
+2. The LLM call record is now ALWAYS emitted at info level; `logPrompts` only
+   attaches the prompt field (previously it silently rerouted the whole record
+   to debug).
+3. Scaffolded config: type-only import (see open question 4 above).
+4. `structured()` detects `stop_reason: max_tokens` and throws an actionable
+   truncation error instead of a misleading validation retry.
+5. `FakeProvider` record mode without `delegate` or `fixtureDir` now fails fast
+   at construction (before any paid delegate call).
+6. Corrupt/misshapen fixture files raise a `ProviderError` naming the file.
+7. `packageRoot()` verifies `name === "testgen"` instead of taking the first
+   `package.json` found walking up.
 
 ### STOP
 

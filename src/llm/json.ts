@@ -7,11 +7,20 @@
  * present in the text.
  */
 export function parseJsonLoose(text: string): unknown {
-  const stripped = stripCodeFences(text).trim();
+  // Direct parse first: valid JSON must never be altered, even if a string
+  // value happens to contain ``` sequences that look like code fences.
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // fall through to fence stripping / extraction
+  }
+
+  const stripped = stripCodeFences(trimmed).trim();
   try {
     return JSON.parse(stripped);
   } catch {
-    const candidate = extractFirstJson(stripped);
+    const candidate = extractFirstJson(stripped) ?? extractFirstJson(trimmed);
     if (candidate === undefined) {
       throw new SyntaxError('No JSON object or array found in model output');
     }

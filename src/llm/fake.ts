@@ -62,6 +62,20 @@ export class FakeProvider implements LLMProvider {
   private readonly options: FakeProviderOptions;
 
   constructor(options: FakeProviderOptions = {}) {
+    // Fail fast on a misconfigured record mode — BEFORE any (paid) delegate
+    // call is made and before stale fixtures could be silently replayed.
+    if (options.record) {
+      if (options.delegate === undefined) {
+        throw new ProviderError('FakeProvider record mode requires a delegate provider.', {
+          hint: 'Pass `delegate` (a real LLMProvider) alongside `record: true`, or disable record.',
+        });
+      }
+      if (options.fixtureDir === undefined) {
+        throw new ProviderError('FakeProvider record mode requires a fixtureDir.', {
+          hint: 'Pass `fixtureDir` so recorded fixtures have somewhere to be written.',
+        });
+      }
+    }
     this.options = options;
     this.logger = options.logger ?? silentLogger();
     this.logPrompts = options.logPrompts ?? false;
@@ -167,7 +181,7 @@ export class FakeProvider implements LLMProvider {
     if (this.options.fixtureDir) {
       const file = join(this.options.fixtureDir, `${key}.json`);
       if (existsSync(file)) {
-        return JSON.parse(readFileSync(file, 'utf8')) as FakeResponse;
+        return readFixture(file);
       }
     }
     if (this.options.responder) return this.options.responder(input);
@@ -175,15 +189,13 @@ export class FakeProvider implements LLMProvider {
   }
 
   private writeFixture(key: string, response: FakeResponse): void {
-    if (!this.options.fixtureDir) {
+    // fixtureDir presence is enforced in the constructor for record mode.
+    const dir = this.options.fixtureDir;
+    if (dir === undefined) {
       throw new ProviderError('FakeProvider record mode requires a fixtureDir.');
     }
-    mkdirSync(this.options.fixtureDir, { recursive: true });
-    writeFileSync(
-      join(this.options.fixtureDir, `${key}.json`),
-      `${JSON.stringify(response, null, 2)}\n`,
-      'utf8',
-    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${key}.json`), `${JSON.stringify(response, null, 2)}\n`, 'utf8');
   }
 
   private logged(
@@ -205,4 +217,28 @@ export class FakeProvider implements LLMProvider {
     );
     return result;
   }
+}
+
+/** Parse a fixture file with actionable errors naming the broken file. */
+function readFixture(file: string): FakeResponse {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (err) {
+    throw new ProviderError(`FakeProvider fixture file is not valid JSON: ${file}.`, {
+      cause: err,
+      hint: 'Fix the file by hand or delete it and re-record.',
+    });
+  }
+  if (
+    parsed === null ||
+    typeof parsed !== 'object' ||
+    typeof (parsed as { text?: unknown }).text !== 'string'
+  ) {
+    throw new ProviderError(
+      `FakeProvider fixture file has an invalid shape (missing string "text"): ${file}.`,
+      { hint: 'Expected { "text": string, "usage"?, "stopReason"? }. Delete it and re-record.' },
+    );
+  }
+  return parsed as FakeResponse;
 }

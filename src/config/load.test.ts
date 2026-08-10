@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, loadConfigFromPath, findConfigFile } from './load.js';
 import { ConfigError } from '../shared/errors.js';
+import { templatesDir } from '../shared/paths.js';
+import { substitute } from '../cli/scaffold.js';
 
 let dir: string;
 
@@ -59,5 +61,20 @@ describe('loadConfigFromPath', () => {
       ConfigError,
     );
     await expect(loadConfigFromPath(join(dir, 'invalid.config.ts'))).rejects.toThrow(/baseUrl/);
+  });
+
+  it('loads the ACTUAL shipped init template even without testgen installed locally', async () => {
+    // The template uses a type-only import of 'testgen', which is erased at
+    // load time — so a freshly init-ed project must load fine before
+    // `testgen` exists in its node_modules.
+    const raw = readFileSync(join(templatesDir(), 'init', 'testgen.config.ts'), 'utf8');
+    const substituted = substitute(raw, { baseUrl: 'https://www.saucedemo.com' });
+    const file = join(dir, 'shipped-template.config.ts');
+    writeFileSync(file, substituted, 'utf8');
+
+    const { config } = await loadConfigFromPath(file);
+    expect(config.baseUrl).toBe('https://www.saucedemo.com');
+    expect(config.envClass).toBe('test');
+    expect(config.models.planner).toBe('claude-sonnet-4-5');
   });
 });

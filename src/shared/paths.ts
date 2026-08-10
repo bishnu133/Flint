@@ -1,19 +1,20 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
  * Resolve the TestGen package root (the directory containing our own
- * package.json). Works both when running from source (tsx/vitest) and from the
- * compiled `dist/` output, so bundled `templates/` and prompt files are found in
- * either mode.
+ * package.json, verified by `name: "testgen"`). Works both when running from
+ * source (tsx/vitest) and from the compiled `dist/` output, so bundled
+ * `templates/` and prompt files are found in either mode. An intermediate
+ * package.json (e.g. one emitted into dist/ by a publish workflow) is skipped
+ * because its name won't match.
  */
 export function packageRoot(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
-  // Walk up until we find the package.json whose name is "testgen".
   for (let i = 0; i < 10; i += 1) {
     const candidate = join(dir, 'package.json');
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && isTestGenPackage(candidate)) {
       return dir;
     }
     const parent = dirname(dir);
@@ -21,8 +22,17 @@ export function packageRoot(): string {
     dir = parent;
   }
   throw new Error(
-    'Could not locate TestGen package root (no package.json found while walking up).',
+    'Could not locate TestGen package root (no package.json with name "testgen" found while walking up).',
   );
+}
+
+function isTestGenPackage(packageJsonPath: string): boolean {
+  try {
+    const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf8')) as { name?: unknown };
+    return pkg.name === 'testgen';
+  } catch {
+    return false; // unreadable/invalid package.json — keep walking
+  }
 }
 
 /** Absolute path to the `templates/` directory shipped with TestGen. */

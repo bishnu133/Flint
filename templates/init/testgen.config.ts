@@ -1,6 +1,8 @@
-import { defineConfig } from 'testgen';
+// Type-only import: erased at load time, so this config works even before the
+// `testgen` package is installed locally. Install it to get editor type checking.
+import type { TestGenConfigInput } from 'testgen';
 
-export default defineConfig({
+export default {
   baseUrl: '{{baseUrl}}',
   // envClass gates dangerous operations. Never point exploration at production.
   envClass: 'test',
@@ -34,4 +36,4 @@ export default defineConfig({
     logPrompts: false,
     verbose: false,
   },
-});
+} satisfies TestGenConfigInput;
