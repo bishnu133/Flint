@@ -1,6 +1,6 @@
 # Application Overview
 
-> Describe your application here so TestGen understands what it is testing.
+> Describe your application here so Flint understands what it is testing.
 
 - **Name:** {{projectName}}
 - **Base URL:** {{baseUrl}}

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, statSy
 import { join, dirname, relative } from 'node:path';
 
 /**
- * Project scaffolder for `testgen init`.
+ * Project scaffolder for `flint init`.
  *
  * Copies the `templates/init/` tree into a target project, substituting
  * `{{placeholder}}` values in text files. Designed to NEVER clobber: it reports

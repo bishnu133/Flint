@@ -21,7 +21,7 @@ status: draft
 
 This is a starter feature spec. Replace it with a real feature.
 
-The frontmatter above is the machine-readable contract TestGen uses to plan
+The frontmatter above is the machine-readable contract Flint uses to plan
 tests; this body is free-form prose that gives the planner extra context.
 
 ## Flow

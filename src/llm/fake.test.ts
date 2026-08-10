@@ -89,7 +89,7 @@ describe('FakeProvider', () => {
   });
 
   it('reports a corrupt fixture file with an actionable error naming the file', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'testgen-fixtures-bad-'));
+    const dir = mkdtempSync(join(tmpdir(), 'flint-fixtures-bad-'));
     const key = FakeProvider.keyFor({
       method: 'complete',
       model: 'fake-model',
@@ -104,7 +104,7 @@ describe('FakeProvider', () => {
   });
 
   it('reports a fixture file with a wrong shape (missing text)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'testgen-fixtures-shape-'));
+    const dir = mkdtempSync(join(tmpdir(), 'flint-fixtures-shape-'));
     const key = FakeProvider.keyFor({
       method: 'complete',
       model: 'fake-model',
@@ -119,7 +119,7 @@ describe('FakeProvider', () => {
   });
 
   it('records to a fixture dir then replays it offline', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'testgen-fixtures-'));
+    const dir = mkdtempSync(join(tmpdir(), 'flint-fixtures-'));
     const delegate = {
       complete: async () => ({
         text: 'recorded',

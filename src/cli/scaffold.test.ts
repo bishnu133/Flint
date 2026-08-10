@@ -10,7 +10,7 @@ const initRoot = join(templatesDir(), 'init');
 let target: string;
 
 beforeEach(() => {
-  target = mkdtempSync(join(tmpdir(), 'testgen-init-'));
+  target = mkdtempSync(join(tmpdir(), 'flint-init-'));
 });
 
 afterEach(() => {
@@ -27,7 +27,7 @@ describe('planScaffold', () => {
   it('enumerates the init template files deterministically', () => {
     const plan = planScaffold(initRoot);
     const rels = plan.map((f) => f.rel);
-    expect(rels).toContain('testgen.config.ts');
+    expect(rels).toContain('flint.config.ts');
     expect(rels).toContain(join('kb', 'features', 'example.md'));
     expect(rels).toContain(join('e2e', 'playwright.config.ts'));
     // deterministic ordering
@@ -46,7 +46,7 @@ describe('applyScaffold (never clobber)', () => {
     );
     expect(result.written.length).toBeGreaterThan(0);
     expect(result.skipped).toHaveLength(0);
-    const config = readFileSync(join(target, 'testgen.config.ts'), 'utf8');
+    const config = readFileSync(join(target, 'flint.config.ts'), 'utf8');
     expect(config).toContain('https://demo.test');
     expect(config).not.toContain('{{baseUrl}}');
     expect(existsSync(join(target, 'e2e', 'pages', '.gitkeep'))).toBe(true);
@@ -76,7 +76,7 @@ describe('applyScaffold (never clobber)', () => {
     );
     expect(rerun.written).toHaveLength(0);
     expect(rerun.skipped.length).toBe(plan.length);
-    const config = readFileSync(join(target, 'testgen.config.ts'), 'utf8');
+    const config = readFileSync(join(target, 'flint.config.ts'), 'utf8');
     expect(config).toContain('https://a.test'); // unchanged
   });
 
@@ -98,7 +98,7 @@ describe('applyScaffold (never clobber)', () => {
         overwrite: true,
       },
     );
-    const config = readFileSync(join(target, 'testgen.config.ts'), 'utf8');
+    const config = readFileSync(join(target, 'flint.config.ts'), 'utf8');
     expect(config).toContain('https://b.test');
   });
 });

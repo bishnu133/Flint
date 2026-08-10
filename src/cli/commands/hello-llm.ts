@@ -13,7 +13,7 @@ const HelloSchema = z.object({
 });
 
 /**
- * `testgen hello-llm` — smoke command proving provider wiring end to end:
+ * `flint hello-llm` — smoke command proving provider wiring end to end:
  * loads a versioned prompt template, makes one tiny structured call, and prints
  * the model + token counts. Fails with an actionable error naming
  * ANTHROPIC_API_KEY when the key is unset.
@@ -30,7 +30,7 @@ export function registerHelloLlm(program: Command): void {
       const { AnthropicProvider } = await import('../../llm/anthropic.js');
       const provider = new AnthropicProvider({ logger });
 
-      const { template, text } = loadAndRender('hello-llm', { toolName: 'TestGen' }, promptsDir());
+      const { template, text } = loadAndRender('hello-llm', { toolName: 'Flint' }, promptsDir());
 
       const result = await provider.structured(HelloSchema, {
         model: opts.model,

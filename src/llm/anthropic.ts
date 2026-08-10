@@ -29,7 +29,7 @@ export interface AnthropicProviderOptions {
  * Anthropic implementation of {@link LLMProvider}.
  *
  * Throws an actionable {@link ProviderError} naming ANTHROPIC_API_KEY when no
- * key is available, so `testgen hello-llm` fails with guidance, not a stack
+ * key is available, so `flint hello-llm` fails with guidance, not a stack
  * trace. Never called from tests (FakeProvider only).
  */
 export class AnthropicProvider implements LLMProvider {
@@ -114,7 +114,7 @@ export class AnthropicProvider implements LLMProvider {
         throw new ProviderError(
           `Model output was truncated at ${req.maxTokens ?? DEFAULT_MAX_TOKENS} output tokens (stage: ${req.meta.stage}) — the JSON is incomplete.`,
           {
-            hint: 'Raise maxTokens for this call (see tokenBudgets in testgen.config.ts) or shrink the prompt.',
+            hint: 'Raise maxTokens for this call (see tokenBudgets in flint.config.ts) or shrink the prompt.',
           },
         );
       }
@@ -163,7 +163,7 @@ export class AnthropicProvider implements LLMProvider {
     } catch (err) {
       throw new ProviderError(`Anthropic API call failed (stage: ${meta.stage}).`, {
         cause: err,
-        hint: err instanceof Error ? err.message : undefined,
+        hint: describeRequestFailure(err),
       });
     }
     const latencyMs = Date.now() - started;
@@ -192,6 +192,75 @@ export class AnthropicProvider implements LLMProvider {
       stopReason: response.stop_reason ?? undefined,
     };
   }
+}
+
+/** Node network error codes mapped to the thing the user should actually check. */
+const NETWORK_CAUSE_HINTS: Readonly<Record<string, string>> = Object.freeze({
+  ENOTFOUND:
+    'DNS could not resolve the host. Check your DNS/VPN, or whether a proxy is required on this network.',
+  EAI_AGAIN: 'DNS lookup timed out. Check your DNS resolver or VPN connection.',
+  ECONNREFUSED: 'The connection was refused. If you are behind a corporate proxy, set HTTPS_PROXY.',
+  ECONNRESET: 'The connection was reset mid-request — often a firewall or TLS-inspecting proxy.',
+  ETIMEDOUT: 'The connection timed out. A firewall may be dropping traffic to api.anthropic.com.',
+  UND_ERR_CONNECT_TIMEOUT:
+    'The connection timed out. A firewall may be dropping traffic to api.anthropic.com.',
+  EPROTO: 'TLS handshake failed — often a TLS-inspecting proxy with an untrusted certificate.',
+  CERT_HAS_EXPIRED: 'The TLS certificate presented is expired (likely a TLS-inspecting proxy).',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE:
+    'The TLS certificate could not be verified — likely a corporate TLS-inspecting proxy. Point NODE_EXTRA_CA_CERTS at your CA bundle.',
+  SELF_SIGNED_CERT_IN_CHAIN:
+    'A self-signed certificate is in the chain — likely a corporate TLS-inspecting proxy. Point NODE_EXTRA_CA_CERTS at your CA bundle.',
+});
+
+/**
+ * Build an actionable hint from a failed SDK request.
+ *
+ * The Anthropic SDK surfaces network failures as a bare "Connection error.",
+ * which tells the user nothing. The real reason (DNS, refused, TLS, proxy) is
+ * carried on the error's `cause` chain, so we walk it and name what to check.
+ */
+export function describeRequestFailure(err: unknown): string | undefined {
+  const parts: string[] = [];
+  const top = err instanceof Error ? err.message : String(err);
+  if (top) parts.push(top);
+
+  for (const link of causeChain(err)) {
+    const code = errorCode(link);
+    const detail = [code, link.message].filter(Boolean).join(': ');
+    if (detail && !parts.includes(detail)) parts.push(detail);
+    const advice = code === undefined ? undefined : NETWORK_CAUSE_HINTS[code];
+    if (advice !== undefined) {
+      parts.push(advice);
+      break;
+    }
+  }
+
+  // A bare "Connection error." with no diagnosable cause is still worth guiding.
+  if (parts.length === 1 && /connection error/i.test(top)) {
+    parts.push(
+      'Could not reach api.anthropic.com. Check network access, and set HTTPS_PROXY if you are behind a proxy. Verify with: curl -sS -o /dev/null -w "%{http_code}\\n" https://api.anthropic.com/v1/messages',
+    );
+  }
+  return parts.length > 0 ? parts.join(' ') : undefined;
+}
+
+/** Walk an error's `cause` chain (bounded, cycle-safe). */
+function causeChain(err: unknown): Error[] {
+  const chain: Error[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err instanceof Error ? err.cause : undefined;
+  while (current instanceof Error && !seen.has(current) && chain.length < 10) {
+    seen.add(current);
+    chain.push(current);
+    current = current.cause;
+  }
+  return chain;
+}
+
+/** Node attaches `code`/`errno` to system errors; they are not on the Error type. */
+function errorCode(err: Error): string | undefined {
+  const code = (err as { code?: unknown }).code;
+  return typeof code === 'string' ? code : undefined;
 }
 
 function extractText(response: Anthropic.Message): string {

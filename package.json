@@ -1,5 +1,5 @@
 {
-  "name": "testgen",
+  "name": "flint",
   "version": "0.0.0",
   "description": "AI-powered test automation code generator for web applications (TypeScript + Playwright output)",
   "type": "module",
@@ -16,7 +16,7 @@
     }
   },
   "bin": {
-    "testgen": "dist/cli/index.js"
+    "flint": "dist/cli/index.js"
   },
   "files": [
     "dist",

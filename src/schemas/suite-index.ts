@@ -5,7 +5,7 @@ import { z } from 'zod';
  *
  * A static-scan model of the existing `e2e/` suite (built with ts-morph in
  * Phase 2) so new tests extend and reuse rather than duplicate. Tracks which
- * files are TestGen-managed vs hand-edited via the managed-marker hash.
+ * files are Flint-managed vs hand-edited via the managed-marker hash.
  */
 
 export const PageObjectMethodSchema = z
@@ -63,7 +63,7 @@ export const SuiteIndexSchema = z
     fixtures: z.array(FixtureSchema),
     dataFactories: z.array(DataFactorySchema),
     coverageMap: CoverageMapSchema,
-    /** Files with a valid, matching @testgen:managed marker. */
+    /** Files with a valid, matching @flint:managed marker. */
     managedFiles: z.array(z.string()),
     /** Managed files whose content hash no longer matches (hand-edited). */
     handEditedFiles: z.array(z.string()),

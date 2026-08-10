@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 /**
- * TestGen project configuration schema (`testgen.config.ts` in a target
+ * Flint project configuration schema (`flint.config.ts` in a target
  * project). LOCKED after Phase 0.
  *
  * Every field has a friendly failure message so an invalid config produces a
@@ -112,7 +112,7 @@ export const DebugConfigSchema = z
 export const DialectSchema = z.enum(['playwright-pom', 'bubblegum']);
 export type Dialect = z.infer<typeof DialectSchema>;
 
-export const TestGenConfigSchema = z
+export const FlintConfigSchema = z
   .object({
     baseUrl: z.string().url('baseUrl must be an absolute URL (e.g. https://app.example.com)'),
     envClass: EnvClassSchema,
@@ -130,6 +130,6 @@ export const TestGenConfigSchema = z
   .strict();
 
 /** Parsed config with all defaults applied. */
-export type TestGenConfig = z.infer<typeof TestGenConfigSchema>;
+export type FlintConfig = z.infer<typeof FlintConfigSchema>;
 /** Config as written by a user, before defaults are applied. */
-export type TestGenConfigInput = z.input<typeof TestGenConfigSchema>;
+export type FlintConfigInput = z.input<typeof FlintConfigSchema>;

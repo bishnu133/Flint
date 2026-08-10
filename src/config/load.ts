@@ -3,9 +3,9 @@ import { isAbsolute, join } from 'node:path';
 import { createJiti } from 'jiti';
 import { ConfigError } from '../shared/errors.js';
 import { formatZodError, firstBadKey } from '../shared/zod-format.js';
-import { TestGenConfigSchema, type TestGenConfig } from '../schemas/config.js';
+import { FlintConfigSchema, type FlintConfig } from '../schemas/config.js';
 
-const CONFIG_FILENAMES = ['testgen.config.ts', 'testgen.config.js', 'testgen.config.mjs'];
+const CONFIG_FILENAMES = ['flint.config.ts', 'flint.config.js', 'flint.config.mjs'];
 
 /** Locate the config file in `cwd`, or return undefined if none exists. */
 export function findConfigFile(cwd: string): string | undefined {
@@ -17,20 +17,20 @@ export function findConfigFile(cwd: string): string | undefined {
 }
 
 /**
- * Load and validate a `testgen.config.ts` from `cwd`.
+ * Load and validate a `flint.config.ts` from `cwd`.
  *
  * A TypeScript config is transpiled on the fly with jiti, so users write plain
  * TS. Validation failures raise a {@link ConfigError} whose message names every
  * bad key (via {@link formatZodError}) — never a raw stack trace.
  */
 export async function loadConfig(cwd: string = process.cwd()): Promise<{
-  config: TestGenConfig;
+  config: FlintConfig;
   path: string;
 }> {
   const path = findConfigFile(cwd);
   if (path === undefined) {
-    throw new ConfigError(`No testgen config found in ${cwd}.`, {
-      hint: `Create a testgen.config.ts (run \`testgen init\`). Looked for: ${CONFIG_FILENAMES.join(', ')}`,
+    throw new ConfigError(`No flint config found in ${cwd}.`, {
+      hint: `Create a flint.config.ts (run \`flint init\`). Looked for: ${CONFIG_FILENAMES.join(', ')}`,
     });
   }
   return loadConfigFromPath(path);
@@ -38,7 +38,7 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<{
 
 /** Load and validate a config from a specific file path. */
 export async function loadConfigFromPath(path: string): Promise<{
-  config: TestGenConfig;
+  config: FlintConfig;
   path: string;
 }> {
   const absPath = isAbsolute(path) ? path : join(process.cwd(), path);
@@ -58,9 +58,9 @@ export async function loadConfigFromPath(path: string): Promise<{
   }
 
   const value = extractDefault(mod);
-  const parsed = TestGenConfigSchema.safeParse(value);
+  const parsed = FlintConfigSchema.safeParse(value);
   if (!parsed.success) {
-    throw new ConfigError(`Invalid testgen config (${absPath}):\n${formatZodError(parsed.error)}`, {
+    throw new ConfigError(`Invalid flint config (${absPath}):\n${formatZodError(parsed.error)}`, {
       hint: `Fix the "${firstBadKey(parsed.error)}" key.`,
     });
   }

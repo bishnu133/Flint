@@ -24,7 +24,7 @@ const invalidConfigSource = `export default {
 `;
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), 'testgen-config-'));
+  dir = mkdtempSync(join(tmpdir(), 'flint-config-'));
   writeFileSync(join(dir, 'valid.config.ts'), validConfigSource, 'utf8');
   writeFileSync(join(dir, 'invalid.config.ts'), invalidConfigSource, 'utf8');
 });
@@ -39,13 +39,13 @@ describe('loadConfig', () => {
     const err = await loadConfig(dir).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ConfigError);
     if (err instanceof ConfigError) {
-      expect(err.hint).toMatch(/testgen\.config\.ts/);
+      expect(err.hint).toMatch(/flint\.config\.ts/);
     }
   });
 
   it('finds a config file when present', () => {
-    writeFileSync(join(dir, 'testgen.config.ts'), validConfigSource, 'utf8');
-    expect(findConfigFile(dir)).toContain('testgen.config.ts');
+    writeFileSync(join(dir, 'flint.config.ts'), validConfigSource, 'utf8');
+    expect(findConfigFile(dir)).toContain('flint.config.ts');
   });
 });
 
@@ -63,11 +63,11 @@ describe('loadConfigFromPath', () => {
     await expect(loadConfigFromPath(join(dir, 'invalid.config.ts'))).rejects.toThrow(/baseUrl/);
   });
 
-  it('loads the ACTUAL shipped init template even without testgen installed locally', async () => {
-    // The template uses a type-only import of 'testgen', which is erased at
+  it('loads the ACTUAL shipped init template even without flint installed locally', async () => {
+    // The template uses a type-only import of 'flint', which is erased at
     // load time — so a freshly init-ed project must load fine before
-    // `testgen` exists in its node_modules.
-    const raw = readFileSync(join(templatesDir(), 'init', 'testgen.config.ts'), 'utf8');
+    // `flint` exists in its node_modules.
+    const raw = readFileSync(join(templatesDir(), 'init', 'flint.config.ts'), 'utf8');
     const substituted = substitute(raw, { baseUrl: 'https://www.saucedemo.com' });
     const file = join(dir, 'shipped-template.config.ts');
     writeFileSync(file, substituted, 'utf8');

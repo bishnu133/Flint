@@ -60,7 +60,7 @@ export function registerStubs(program: Command): void {
       cmd.argument(arg.required ? `<${arg.name}>` : `[${arg.name}]`, arg.description);
     }
     cmd.action(() => {
-      console.log(`\`testgen ${spec.name}\` is not yet implemented (Phase ${spec.phase}).`);
+      console.log(`\`flint ${spec.name}\` is not yet implemented (Phase ${spec.phase}).`);
       process.exitCode = 2;
     });
   }

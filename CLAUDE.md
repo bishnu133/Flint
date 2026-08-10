@@ -1,6 +1,6 @@
-# CLAUDE.md — TestGen Project Rules
+# CLAUDE.md — Flint Project Rules
 
-You are building **TestGen**, an AI-powered test automation code generator for web applications (TypeScript + Playwright output). The complete specification lives in `docs/testgen-master-development-plan.md`. That document is the **single source of truth** — read it before any work.
+You are building **Flint**, an AI-powered test automation code generator for web applications (TypeScript + Playwright output). The complete specification lives in `reference/docs/flint-master-development-plan.md`. That document is the **single source of truth** — read it before any work.
 
 ## Non-negotiable working rules
 
@@ -14,7 +14,7 @@ You are building **TestGen**, an AI-powered test automation code generator for w
 
 ## Stack (locked)
 
-TypeScript 5.x strict • Node 20+ • ESM • pnpm • commander (CLI) • zod (all schemas/config) • @playwright/test • Anthropic SDK behind `LLMProvider` interface • pino logging • vitest • JSON file storage under `.testgen/` (no DB)
+TypeScript 5.x strict • Node 20+ • ESM • pnpm • commander (CLI) • zod (all schemas/config) • @playwright/test • Anthropic SDK behind `LLMProvider` interface • pino logging • vitest • JSON file storage under `.flint/` (no DB)
 
 ## Code conventions
 
