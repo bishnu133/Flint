@@ -15,11 +15,6 @@ interface StubSpec {
 
 const STUBS: StubSpec[] = [
   {
-    name: 'explore',
-    phase: 1,
-    description: 'Build the Screen Model by exploring the live app',
-  },
-  {
     name: 'index',
     phase: 2,
     description: 'Build the Suite Index from the existing e2e/ suite',

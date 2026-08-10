@@ -6,6 +6,7 @@ import { packageRoot } from '../shared/paths.js';
 import { isFlintError } from '../shared/errors.js';
 import { registerInit } from './commands/init.js';
 import { registerHelloLlm } from './commands/hello-llm.js';
+import { registerExplore } from './commands/explore.js';
 import { registerStubs } from './commands/stubs.js';
 
 function version(): string {
@@ -29,6 +30,9 @@ export function buildProgram(): Command {
   // Implemented in Phase 0.
   registerInit(program);
   registerHelloLlm(program);
+
+  // Implemented in Phase 1.
+  registerExplore(program);
 
   // Pipeline commands (stubbed until their phase).
   registerStubs(program);

@@ -18,14 +18,46 @@ export interface LaunchOptions {
   executablePath?: string;
   /** Per-action timeout in ms. */
   timeoutMs?: number;
+  /** Proxy server URL; defaults to HTTPS_PROXY / HTTP_PROXY from the env. */
+  proxyServer?: string;
+  /** Comma-separated no-proxy list; defaults to NO_PROXY from the env. */
+  noProxy?: string;
+}
+
+/**
+ * Resolve proxy settings from options or the standard env vars.
+ *
+ * Playwright does NOT inherit `HTTPS_PROXY` the way curl and Node do — it must
+ * be passed explicitly at launch. Without this, a browser on a corporate
+ * network fails every navigation with `ERR_TUNNEL_CONNECTION_FAILED` while
+ * every other tool on the same machine works fine.
+ */
+export function resolveProxy(
+  options: LaunchOptions = {},
+): { server: string; bypass?: string } | undefined {
+  const server =
+    options.proxyServer ??
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy;
+  if (server === undefined || server.trim() === '') return undefined;
+
+  const bypass = options.noProxy ?? process.env.NO_PROXY ?? process.env.no_proxy;
+  return {
+    server: server.trim(),
+    ...(bypass !== undefined && bypass.trim() !== '' ? { bypass: bypass.trim() } : {}),
+  };
 }
 
 export async function launchBrowser(options: LaunchOptions = {}): Promise<Browser> {
   const executablePath = options.executablePath ?? process.env[BROWSER_EXECUTABLE_ENV];
+  const proxy = resolveProxy(options);
   try {
     return await chromium.launch({
       headless: options.headed !== true,
       ...(executablePath !== undefined && executablePath !== '' ? { executablePath } : {}),
+      ...(proxy !== undefined ? { proxy } : {}),
     });
   } catch (err) {
     throw new ProviderError('Could not launch Chromium.', {

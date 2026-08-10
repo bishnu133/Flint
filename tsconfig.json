@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    // DOM is required from Phase 1 on: code inside Playwright's
+    // `locator.evaluate()` is serialized and executed in the browser, so it
+    // needs Element/HTMLElement/CSS/document declarations. Adding a lib only
+    // widens available types — it changes no existing behaviour.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "rootDir": "src",
