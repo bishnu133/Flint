@@ -49,6 +49,12 @@ export interface ExtractOptions {
   role?: string;
   /** Where to write the screenshot; omitted = no screenshot. */
   screenshotPath?: string;
+  /**
+   * What to record in the model, when that should differ from where the file
+   * is written. The crawler stores a path relative to the model file so a
+   * committed Screen Model is not tied to one machine's directory layout.
+   */
+  screenshotRef?: string;
 }
 
 const DEFAULT_MAX_ELEMENTS = 300;
@@ -106,7 +112,9 @@ export async function extractPage(page: PwPage, options: ExtractOptions = {}): P
     capturedAt: new Date().toISOString(),
     ...(lang !== null && lang !== '' ? { lang } : {}),
     ...(options.role !== undefined ? { role: options.role } : {}),
-    ...(options.screenshotPath !== undefined ? { screenshotPath: options.screenshotPath } : {}),
+    ...(options.screenshotPath !== undefined
+      ? { screenshotPath: options.screenshotRef ?? options.screenshotPath }
+      : {}),
   };
 }
 
@@ -132,6 +140,35 @@ interface FrameExtractOptions {
   rankOptions: { i18n: boolean; testIdAttribute: string };
   limit: number;
   seenIds: Set<string>;
+}
+
+export interface FrameElementsOptions {
+  testIdAttribute?: string;
+  i18n?: boolean;
+  framePath?: string[];
+  maxElements?: number;
+  /** Element ids already captured; passing one across calls suppresses repeats. */
+  seenIds?: Set<string>;
+}
+
+/**
+ * Extract the interactive elements of a single frame.
+ *
+ * Exposed for the bounded interaction pass, which re-reads a frame after
+ * opening a menu or modal and diffs the result against the first pass.
+ */
+export async function extractFrameElements(
+  frame: Frame,
+  options: FrameElementsOptions = {},
+): Promise<Element[]> {
+  const testIdAttribute = options.testIdAttribute ?? 'data-testid';
+  return extractFrame(frame, {
+    framePath: options.framePath ?? [],
+    testIdAttribute,
+    rankOptions: { i18n: options.i18n === true, testIdAttribute },
+    limit: options.maxElements ?? DEFAULT_MAX_ELEMENTS,
+    seenIds: options.seenIds ?? new Set<string>(),
+  });
 }
 
 async function extractFrame(frame: Frame, opts: FrameExtractOptions): Promise<Element[]> {

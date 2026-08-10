@@ -18,7 +18,8 @@ let browser: Browser;
 let context: BrowserContext;
 
 /** Flipped between requests to simulate the app changing under the model. */
-let variant: 'original' | 'renamed-testid' | 'duplicated' | 'removed' = 'original';
+let variant: 'original' | 'renamed-testid' | 'duplicated' | 'removed' | 'client-rendered' =
+  'original';
 
 beforeAll(async () => {
   server = createServer((req, res) => {
@@ -26,6 +27,17 @@ beforeAll(async () => {
     res.writeHead(200, { 'content-type': 'text/html' });
     if (path !== '/') {
       res.end('<html lang="en"><body><h1>Other</h1></body></html>');
+      return;
+    }
+    if (variant === 'client-rendered') {
+      // Paints nothing on first byte, then fills in — the shape that makes a
+      // naive validator report every selector on the page as broken.
+      res.end(`<html lang="en"><body><div id="root"></div><script>
+        setTimeout(function () {
+          document.getElementById('root').innerHTML =
+            '<h1>Home</h1><button data-testid="cta">Start</button>';
+        }, 150);
+      </script></body></html>`);
       return;
     }
     const button =
@@ -133,6 +145,19 @@ describe('validateModel', () => {
     expect(report.selectorsChecked).toBe(0);
     // Rate stays 1 because nothing checkable drifted.
     expect(report.resolveRate).toBe(1);
+  }, 90_000);
+
+  it('waits for client-rendered content instead of reporting it as drift', async () => {
+    variant = 'client-rendered';
+    const model = (await crawl(context, { config: config() })).model;
+    const button = model.pages[0]!.elements.find((e) => e.testId === 'cta');
+    expect(button).toBeDefined();
+
+    // Same app, unchanged — the only way this can fail is the validator
+    // reading the page before the client has painted it.
+    const report = await validateModel(context, model);
+    expect(report.resolveRate).toBe(1);
+    expect(report.broken).toHaveLength(0);
   }, 90_000);
 
   it('reports a rate of 1 for an empty model rather than dividing by zero', async () => {

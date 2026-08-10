@@ -3,6 +3,7 @@ import type { ScreenModel, SelectorCandidate } from '../schemas/screen-model.js'
 import { silentLogger, type Logger } from '../shared/logger.js';
 import { locatorFor } from './extractor.js';
 import { pickBest } from './selector-ranker.js';
+import { waitForDomStable } from './wait.js';
 
 /**
  * Replay validator (`flint explore --validate`).
@@ -68,6 +69,11 @@ export async function validateModel(
           waitUntil: 'domcontentloaded',
           ...(options.timeoutMs !== undefined ? { timeout: options.timeoutMs } : {}),
         });
+        // Settle exactly as the crawler did before capturing. Without this a
+        // client-rendered page is measured while its shell is still empty and
+        // every selector on it is reported as broken — false drift, on every
+        // SPA, every run.
+        await waitForDomStable(page);
       } catch {
         report.pagesUnreachable.push(modelPage.url);
         logger.warn({ url: modelPage.url }, 'validate: page unreachable');

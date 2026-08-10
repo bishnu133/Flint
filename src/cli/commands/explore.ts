@@ -5,8 +5,8 @@ import { loadConfig } from '../../config/load.js';
 import { createLogger } from '../../shared/logger.js';
 import { FlintError } from '../../shared/errors.js';
 import { launchBrowser } from '../../explorer/browser.js';
-import { createAuthenticatedContext } from '../../explorer/auth.js';
-import { crawl } from '../../explorer/crawler.js';
+import { createAuthenticatedContext, reauthenticate } from '../../explorer/auth.js';
+import { crawl, type LoginWallDiagnosis, type SessionExpiry } from '../../explorer/crawler.js';
 import {
   diffModels,
   formatDiff,
@@ -16,6 +16,12 @@ import {
   writeModel,
 } from '../../explorer/screen-model-store.js';
 import { validateModel, formatValidation } from '../../explorer/validator.js';
+import {
+  formatReplay,
+  mergeFlowPages,
+  replayFlows,
+  type ReplayResult,
+} from '../../explorer/flows.js';
 
 /**
  * `flint explore` — build the Screen Model by exploring the live app.
@@ -46,6 +52,9 @@ export function registerExplore(program: Command): void {
       95,
     )
     .option('--headed', 'run with a visible browser window', false)
+    .option('--no-interaction-pass', 'skip opening menus/modals to catch hidden elements')
+    .option('--no-flows', 'skip replaying the flow scripts in <kbDir>/app/flows')
+    .option('--flow <id...>', 'replay only the named flow scripts')
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: ExploreOptions) => {
       await runExplore(opts);
@@ -62,6 +71,11 @@ interface ExploreOptions {
   validate: boolean;
   minResolveRate: number;
   headed: boolean;
+  /** commander maps `--no-interaction-pass` onto this, defaulting to true. */
+  interactionPass: boolean;
+  /** commander maps `--no-flows` onto this, defaulting to true. */
+  flows: boolean;
+  flow?: string[];
   verbose: boolean;
 }
 
@@ -126,19 +140,47 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       ...(opts.url !== undefined ? { startUrl: opts.url } : {}),
       ...(opts.role !== undefined ? { role: opts.role } : {}),
       screenshotDir,
+      interactionPass: opts.interactionPass,
+      reauth: () => reauthenticate(context, { config, projectRoot, logger }),
     });
+
+    // Flow scripts reach states no link leads to, so they run after the crawl
+    // and fold their pages into the same model.
+    let model = result.model;
+    let replay: ReplayResult | undefined;
+    if (opts.flows) {
+      replay = await replayFlows(context, {
+        config,
+        projectRoot,
+        logger,
+        ...(opts.role !== undefined ? { role: opts.role } : {}),
+        ...(opts.flow !== undefined ? { only: opts.flow } : {}),
+      });
+      model = mergeFlowPages(model, replay.pages);
+    }
 
     const path = modelPath(projectRoot, opts.role);
     const previous = tryReadModel(path);
 
     console.log('');
-    console.log(
-      `Explored ${result.model.pages.length} page(s) in ${fmtDuration(result.durationMs)}`,
-    );
-    console.log(`  elements captured: ${countElements(result)}`);
-    console.log(`  verified unique selectors: ${countUniqueSelectors(result)}`);
+    console.log(`Explored ${model.pages.length} page(s) in ${fmtDuration(result.durationMs)}`);
+    console.log(`  elements captured: ${countElements(model)}`);
+    console.log(`  verified unique selectors: ${countUniqueSelectors(model)}`);
     if (result.skipped.length > 0) {
       console.log(`  skipped: ${result.skipped.length} (${summarizeSkips(result.skipped)})`);
+    }
+
+    if (result.loginWallSuspected !== undefined) {
+      printLoginWallWarning(result.loginWallSuspected, config.baseUrl);
+    }
+    if (result.sessionExpiry !== undefined) {
+      printSessionExpiry(result.sessionExpiry);
+    }
+    if (replay !== undefined && (replay.succeeded.length > 0 || replay.failures.length > 0)) {
+      console.log('');
+      console.log(formatReplay(replay));
+      // A broken flow means a state nobody modelled — surface it in CI.
+      if (replay.failures.length > 0) process.exitCode = 1;
     }
 
     if (opts.diff) {
@@ -147,7 +189,7 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
         process.exitCode = 1;
         return;
       }
-      const diff = diffModels(previous, result.model);
+      const diff = diffModels(previous, model);
       console.log('\nDiff vs stored model:');
       console.log(formatDiff(diff));
       // Non-zero on drift so CI can gate on it.
@@ -155,26 +197,71 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       return;
     }
 
-    writeModel(path, result.model);
+    writeModel(path, model);
     console.log(`\nScreen Model written to ${path}`);
   } finally {
     await browser.close().catch(() => undefined);
   }
 }
 
-function countElements(result: { model: { pages: Array<{ elements: unknown[] }> } }): number {
-  return result.model.pages.reduce((sum, p) => sum + p.elements.length, 0);
+/**
+ * A one-page result behind a login wall looks exactly like a one-page app.
+ * Say which one it is, and say how to fix it, rather than leaving the user to
+ * infer it from a page count.
+ */
+function printLoginWallWarning(diagnosis: LoginWallDiagnosis, baseUrl: string): void {
+  console.log('');
+  console.log('WARNING: login wall suspected — this model is probably the login screen,');
+  console.log('         not your application.');
+  console.log(`  ${diagnosis.reason}`);
+  console.log(`  entry page: ${diagnosis.url}`);
+  if (diagnosis.authMode === 'none') {
+    console.log('  fix: configure auth in flint.config.ts, for example');
+    console.log('       auth: {');
+    console.log("         mode: 'credentials',");
+    console.log("         username: process.env.APP_USER ?? '',");
+    console.log("         password: process.env.APP_PASSWORD ?? '',");
+    console.log(`         loginUrl: '${trimSlash(baseUrl)}/login',`);
+    console.log('       },');
+  } else {
+    console.log('  fix: check the credentials/session used by auth, then re-run explore.');
+  }
 }
 
-function countUniqueSelectors(result: {
-  model: {
-    pages: Array<{
-      elements: Array<{ selectorCandidates: Array<{ unique: boolean; verified: boolean }> }>;
-    }>;
-  };
+/**
+ * A partial model is useful; a partial model mistaken for a complete one is
+ * not. Say which happened, and set a non-zero exit code when the crawl aborted
+ * so CI does not treat a truncated model as a good run.
+ */
+function printSessionExpiry(expiry: SessionExpiry): void {
+  console.log('');
+  if (expiry.recovered) {
+    console.log('NOTE: the session expired mid-crawl; Flint logged back in and continued.');
+    console.log(`  first seen on: ${expiry.url}`);
+    return;
+  }
+  console.log('WARNING: the session expired mid-crawl and could not be restored.');
+  console.log('         The model below is PARTIAL.');
+  console.log(`  stopped at: ${expiry.url}`);
+  if (expiry.detail !== undefined) console.log(`  reason: ${expiry.detail}`);
+  process.exitCode = 1;
+}
+
+function trimSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
+}
+
+function countElements(model: { pages: Array<{ elements: unknown[] }> }): number {
+  return model.pages.reduce((sum, p) => sum + p.elements.length, 0);
+}
+
+function countUniqueSelectors(model: {
+  pages: Array<{
+    elements: Array<{ selectorCandidates: Array<{ unique: boolean; verified: boolean }> }>;
+  }>;
 }): number {
   let n = 0;
-  for (const page of result.model.pages) {
+  for (const page of model.pages) {
     for (const el of page.elements) {
       if (el.selectorCandidates.some((c) => c.verified && c.unique)) n += 1;
     }

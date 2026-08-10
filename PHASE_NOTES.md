@@ -251,3 +251,143 @@ Gates after rename: build, lint, format clean; 91 tests green; `flint --help`,
 
 Per the kickoff: Phase 0 ends here. **Schemas are presented for human review;
 Phase 1 does not start until they are approved.**
+
+---
+
+## Phase 1 — Explorer
+
+Built in four commits. Phase 0 files were not modified except the two wiring
+points noted under "Frozen-file touches" below.
+
+### Exit criteria — evidence
+
+Measured by `src/explorer/exit-criteria.test.ts`, which builds a 30-page fixture
+app (26 server-rendered pages + 4 client-rendered SPA routes that paint 120 ms
+after load) and reports real numbers rather than asserted ones.
+
+| Criterion (master plan Part C, Phase 1)   | Required             | Measured                             |
+| ----------------------------------------- | -------------------- | ------------------------------------ |
+| 30-page crawl completes                   | < 5 min              | **47.2 s**                           |
+| Stored top-candidate selectors re-resolve | ≥ 95%                | **192/192 = 100.0%**                 |
+| Elements with a verified-unique selector  | (ceiling on Phase 4) | **100%** on the content-page fixture |
+| `pnpm test`                               | green                | **345 tests, 26 files**              |
+| `pnpm build` / `pnpm lint`                | clean                | clean                                |
+
+**Not verified in this environment: the two public demo apps.** The master plan
+asks for a full Screen Model against saucedemo.com plus one SPA (Conduit or
+similar). The sandbox this phase was built in has an egress proxy that refuses
+CONNECT to both (`403`, verified with curl), so those runs must be done on the
+operator's machine. Everything they would exercise is covered by local fixtures
+serving the same shapes over real HTTP with a real browser — including the
+login wall, the SPA render delay, and session expiry — but the demo-app runs
+remain an open item, listed under "Open items" below.
+
+### Selector-ranking correction found by the exit-criteria run
+
+The first exit-criteria run measured **93.75%**, below the 95% gate. Every
+failure was on an SPA route. Cause: `validateModel` navigated with
+`waitUntil: 'domcontentloaded'` and read the page immediately, while the
+crawler waits for DOM stability before extracting. The validator was therefore
+measuring an empty shell and reporting every selector on it as drift — which
+would have made `flint explore --validate` useless against any React/Vue app,
+and would have made the Phase 1 gate unpassable for the wrong reason.
+
+Fix: the validator now calls `waitForDomStable` after `goto`, exactly as the
+crawler does. Re-measured at 100.0%. Regression test:
+`validator.test.ts > waits for client-rendered content instead of reporting it
+as drift`, which serves a shell that paints after 150 ms.
+
+### Scenario coverage (master plan Phase 1 list)
+
+| Scenario                         | Where                                                                                                                                                                |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SPAs / client-side routing       | `wait.ts` — `waitForDomStable` (node-count + body-text fingerprint, polled to a timeout) and `recordRoutes` (`framenavigated` + `page.url()` for history-API pushes) |
+| Login walls mid-crawl            | `crawler.ts` — one re-auth via the caller-supplied `reauth` callback, then resume; otherwise stop with a partial model. `auth.ts` — `reauthenticate()`               |
+| Login wall at the _entry_ page   | `crawler.ts` — `diagnoseLoginWall`, surfaced by the CLI with a config snippet (see below)                                                                            |
+| Infinite/parameterised URLs      | `url-policy.ts` — `normalize` rules, `dedupeKey`                                                                                                                     |
+| Modals/menus needing interaction | `interaction-pass.ts` — open/snapshot/close, one interaction deep                                                                                                    |
+| iframes                          | `extractor.ts` — same-origin child frames flattened with `framePath`; cross-origin skipped                                                                           |
+| Shadow DOM                       | Playwright locator APIs throughout; no raw DOM walks                                                                                                                 |
+| i18n apps                        | `<html lang>` recorded per page; `I18N_TEXT_DEMOTION` in the ranker                                                                                                  |
+| Destructive links                | Crawler never clicks — `goto` on vetted hrefs only. The interaction pass is the one place that clicks, and it is gated on `explorer.dangerousActionPatterns`         |
+| CAPTCHAs / bot detection         | `explorer.captchaPatterns` → page skipped, crawl continues                                                                                                           |
+| Multi-role apps                  | `--role`, `model.<role>.json`, pages tagged                                                                                                                          |
+
+### Login-wall diagnostic (added after two rounds of operator confusion)
+
+Running `flint explore` against an app whose front door is a login screen
+reported "Explored 1 page" — indistinguishable from a genuine one-page app.
+Twice this had to be explained by hand. The tool now explains itself: when a
+password field is visible on the entry page, `CrawlResult.loginWallSuspected`
+is set and the CLI prints a warning naming the configured `auth.mode` and, when
+it is `none`, a ready-to-paste `auth: { mode: 'credentials', … }` block.
+
+### Flow-script format (defined here — the master plan does not specify one)
+
+`<kbDir>/app/flows/*.md`: optional `---` frontmatter (`id`, `description`;
+minimal `key: value` reader, not a YAML parser) plus the **first** `ts`/`js`
+code fence. The fence exports `default async (page, flint) => {…}` where
+`flint` is `{ baseUrl, capture(label?) }`. Each `capture()` snapshots the
+current state as `reachedVia: { kind: 'flow', flowId, step }` — the schema's
+existing `FlowRefSchema.step` field is exactly this index. A flow that never
+calls `capture()` is snapshotted once where it ends. A throwing flow is
+reported by id and file; the remaining flows still run. Example shipped at
+`templates/init/kb/app/flows/example.md`.
+
+Only the first fence is used, deliberately: a flow is one script, and
+concatenating fences would make execution order depend on prose layout.
+
+### Deviations and simpler-option calls (CLAUDE.md rule 7)
+
+1. **Interaction-pass provenance is not persisted.** The pass knows which
+   trigger revealed which elements, but `ElementSchema` is `.strict()` and
+   LOCKED, so revealed elements are merged into the page's `elements` array
+   with no record of the opener. Consequence: Phase 4 could emit a reference to
+   a menu item without emitting the click that opens the menu.
+   **Requested schema change (needs human approval, rule 4):** add
+   `Element.revealedBy?: { openerElementId: string }`. Wiring it is a two-line
+   change in `crawler.ts`; `InteractionPassResult.outcomes` already carries the
+   relationship in-process. Until then, prefer `--no-interaction-pass` if a
+   Phase 4 run starts emitting menu-item references that fail.
+2. **Flow pages merge into crawled pages by page id (normalized URL).** A flow
+   that reaches "/cart with items" folds its elements into the same page as the
+   crawled empty "/cart", taking the union. The Screen Model has no notion of
+   per-state pages in V1. **Open question:** should page identity include state?
+   That is a schema change and a much larger design question — flagged, not taken.
+3. **Screenshots are stored as a path relative to the model file**
+   (`screenshots/<pageId>.png`) rather than the absolute write path, so a
+   committed Screen Model is not tied to one machine's layout.
+4. **`waitForDomStable` fingerprint is node count + body text length**, not a
+   full DOM hash. It is sensitive to what matters (elements appearing, content
+   filling in) and ignores attribute churn from animations, which would
+   otherwise never settle.
+5. **`isDangerous` is a literal case-insensitive substring match.** "Log out"
+   does not match the default pattern `logout`; this is documented in the
+   table-driven test rather than silently normalised, because a fuzzy match here
+   would be a safety property nobody can predict.
+
+### Frozen-file touches
+
+- `tsconfig.json` (Phase 0): `"lib": ["ES2022", "DOM", "DOM.Iterable"]`. Required
+  for `locator.evaluate` callbacks, which run in the browser and need DOM types.
+  Already flagged in the Phase 0 section.
+- `templates/init/kb/app/flows/example.md` is a **new** file in the Phase 0
+  scaffold directory. Rule 2 permits later phases to add files; no existing
+  template was modified.
+
+No other Phase 0 file was changed.
+
+### New config surface
+
+None. The whole phase runs on the LOCKED `ExplorerConfigSchema` — including
+`dangerousActionPatterns`, which existed but had no consumer until the
+interaction pass. New behaviour is controlled by CLI flags instead:
+`--no-interaction-pass`, `--no-flows`, `--flow <id...>`.
+
+### Open items carried into Phase 2
+
+1. Run `flint explore` against saucedemo.com and one SPA (Conduit) from a
+   machine with egress, and record the two Screen Models. This is the only
+   Phase 1 exit criterion not verified here.
+2. Approve or reject `Element.revealedBy` (deviation 1 above).
+3. Decide whether page identity should include state (deviation 2 above).

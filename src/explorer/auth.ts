@@ -91,6 +91,46 @@ export async function createAuthenticatedContext(
   }
 }
 
+/**
+ * Re-authenticate an existing context in place.
+ *
+ * Used when a session expires mid-crawl: the crawler has a half-built model it
+ * does not want to throw away, so rather than restarting it logs back in on the
+ * same context and resumes. Only the two modes that actually hold credentials
+ * can do this — the others say so instead of silently continuing anonymously.
+ */
+export async function reauthenticate(context: BrowserContext, options: AuthOptions): Promise<void> {
+  const { config, projectRoot } = options;
+  const logger = options.logger ?? silentLogger();
+  const auth = config.auth;
+
+  if (auth.mode === 'none') {
+    throw new FlintError('Cannot re-authenticate: auth.mode is "none".', {
+      code: 'AUTH',
+      hint: 'The app returned a login screen mid-crawl. Configure auth.mode "credentials" or "loginScript" so Flint can log back in.',
+    });
+  }
+  if (auth.mode === 'storageState') {
+    throw new FlintError('Cannot re-authenticate from a storageState file.', {
+      code: 'AUTH',
+      hint: 'The stored session expired. Regenerate the storageState file, or switch to auth.mode "credentials"/"loginScript" so Flint can log in again on its own.',
+    });
+  }
+
+  const page = await context.newPage();
+  try {
+    if (auth.mode === 'loginScript') {
+      const script = await loadLoginScript(absolute(projectRoot, auth.loginScriptPath));
+      await script(page);
+    } else {
+      await performCredentialLogin(page, auth, config.baseUrl);
+    }
+    logger.info({ mode: auth.mode }, 'auth: re-authenticated mid-crawl');
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
+
 function absolute(projectRoot: string, path: string): string {
   return isAbsolute(path) ? path : resolve(projectRoot, path);
 }

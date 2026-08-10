@@ -38,6 +38,14 @@ const SITE: Record<string, string> = {
   '/product/2': `<html lang="en"><body><h1>P2</h1><button data-testid="buy">Buy</button></body></html>`,
   '/product/3': `<html lang="en"><body><h1>P3</h1><button data-testid="buy">Buy</button></body></html>`,
   '/blocked': `<html lang="en"><body><h1>Please verify you are human</h1></body></html>`,
+  '/wall': `<html lang="en"><body>
+    <h1>Sign in</h1>
+    <form method="POST" action="/wall">
+      <input name="username" placeholder="Username">
+      <input name="password" type="password" placeholder="Password">
+      <button type="submit" id="login-button">Login</button>
+    </form>
+  </body></html>`,
 };
 
 let server: Server;
@@ -197,6 +205,39 @@ describe('crawl', () => {
     });
     expect(result.model.role).toBe('admin');
     expect(result.model.pages[0]?.role).toBe('admin');
+  }, 60_000);
+
+  it('flags a suspected login wall when the entry page has a password field', async () => {
+    const result = await crawl(context, {
+      config: config({ auth: { mode: 'none' } }),
+      startUrl: `${baseUrl}/wall`,
+    });
+    expect(result.loginWallSuspected).toBeDefined();
+    expect(result.loginWallSuspected?.authMode).toBe('none');
+    expect(result.loginWallSuspected?.url).toBe(`${baseUrl}/wall`);
+    expect(result.loginWallSuspected?.reason).toMatch(/auth\.mode is "none"/);
+  }, 60_000);
+
+  it('names the configured auth mode when the wall survives authentication', async () => {
+    const result = await crawl(context, {
+      config: config({
+        auth: { mode: 'storageState', storageStatePath: 'state.json' },
+      }),
+      startUrl: `${baseUrl}/wall`,
+    });
+    expect(result.loginWallSuspected?.authMode).toBe('storageState');
+    expect(result.loginWallSuspected?.reason).toMatch(/did not carry into the crawl/);
+  }, 60_000);
+
+  it('does not flag a login wall on an ordinary page', async () => {
+    const result = await crawl(context, { config: config({ explorer: { maxPages: 1 } }) });
+    expect(result.loginWallSuspected).toBeUndefined();
+  }, 60_000);
+
+  it('only diagnoses the entry page — a deeper login wall does not trigger it', async () => {
+    // /wall is reachable only as a start URL here; crawling from / must stay clean.
+    const result = await crawl(context, { config: config() });
+    expect(result.loginWallSuspected).toBeUndefined();
   }, 60_000);
 
   it('is deterministic — two crawls of an unchanged site produce the same page ids', async () => {
