@@ -39,11 +39,19 @@ export interface InteractionPassOptions {
 }
 
 export type OpenerSkipReason =
-  'dangerous' | 'not-interactable' | 'nothing-revealed' | 'navigated' | 'failed';
+  | 'dangerous'
+  | 'not-interactable'
+  | 'nothing-revealed'
+  | 'navigated'
+  | 'failed'
+  /** The trigger is not itself a captured element, so nothing can click it. */
+  | 'opener-not-in-model';
 
 export interface OpenerOutcome {
-  /** Accessible text of the trigger, for logs and future provenance. */
+  /** Accessible text of the trigger, for logs. */
   opener: string;
+  /** The captured element the trigger corresponds to, when it could be matched. */
+  openerElementId?: string;
   revealed: Element[];
   skipped?: OpenerSkipReason;
 }
@@ -66,18 +74,18 @@ const SETTLE_MS = 1_200;
  */
 export async function runInteractionPass(
   page: PwPage,
-  alreadyCaptured: Set<string>,
+  alreadyCaptured: Element[],
   options: InteractionPassOptions,
 ): Promise<InteractionPassResult> {
   const logger = options.logger ?? silentLogger();
   const maxOpeners = options.maxOpeners ?? DEFAULT_MAX_OPENERS;
   const baselineUrl = page.url();
 
-  const openers = await findOpeners(page, maxOpeners);
+  const openers = await findOpeners(page, maxOpeners, options.testIdAttribute ?? 'data-testid');
   const revealed: Element[] = [];
   const outcomes: OpenerOutcome[] = [];
   // Shared across triggers so two menus containing the same item record it once.
-  const seenIds = new Set(alreadyCaptured);
+  const seenIds = new Set(alreadyCaptured.map((e) => e.id));
 
   for (const opener of openers) {
     const outcome = await tryOpener(page, opener, {
@@ -85,6 +93,7 @@ export async function runInteractionPass(
       logger,
       seenIds,
       baselineUrl,
+      captured: alreadyCaptured,
     });
     outcomes.push(outcome);
     revealed.push(...outcome.revealed);
@@ -96,6 +105,9 @@ export async function runInteractionPass(
 interface Opener {
   locator: Locator;
   text: string;
+  /** Identifying attributes, used to match the trigger to a captured element. */
+  testId?: string;
+  domId?: string;
 }
 
 /**
@@ -104,17 +116,54 @@ interface Opener {
  * Document order is what Playwright's `all()` returns, and it is stable for an
  * unchanged page — which is what keeps a re-crawl byte-identical.
  */
-async function findOpeners(page: PwPage, limit: number): Promise<Opener[]> {
+async function findOpeners(
+  page: PwPage,
+  limit: number,
+  testIdAttribute: string,
+): Promise<Opener[]> {
   const locators = await page
     .locator(OPENER_SELECTOR)
     .all()
     .catch(() => []);
   const out: Opener[] = [];
   for (const locator of locators.slice(0, limit)) {
-    const text = await accessibleText(locator);
-    out.push({ locator, text });
+    const [text, testId, domId] = await Promise.all([
+      accessibleText(locator),
+      locator.getAttribute(testIdAttribute).catch(() => null),
+      locator.getAttribute('id').catch(() => null),
+    ]);
+    out.push({
+      locator,
+      text,
+      ...(testId !== null && testId !== '' ? { testId } : {}),
+      ...(domId !== null && domId !== '' ? { domId } : {}),
+    });
   }
   return out;
+}
+
+/**
+ * Match a trigger to the element the extractor already captured for it.
+ *
+ * `openerElementId` has to reference a real element in the model, or the
+ * Emitter cannot produce the click that reveals the menu. Matching is by the
+ * strongest identifier available: test id, then DOM id, then accessible name.
+ */
+function matchOpener(opener: Opener, captured: Element[]): Element | undefined {
+  if (opener.testId !== undefined) {
+    const byTestId = captured.find((e) => e.testId === opener.testId);
+    if (byTestId !== undefined) return byTestId;
+  }
+  if (opener.domId !== undefined) {
+    const byDomId = captured.find((e) => e.domId === opener.domId);
+    if (byDomId !== undefined) return byDomId;
+  }
+  if (opener.text !== '') {
+    const byName = captured.filter((e) => e.name === opener.text);
+    // Only trust a name match when it is unambiguous.
+    if (byName.length === 1) return byName[0];
+  }
+  return undefined;
 }
 
 async function accessibleText(locator: Locator): Promise<string> {
@@ -130,6 +179,7 @@ interface TryOpenerContext extends InteractionPassOptions {
   logger: Logger;
   seenIds: Set<string>;
   baselineUrl: string;
+  captured: Element[];
 }
 
 async function tryOpener(
@@ -144,6 +194,19 @@ async function tryOpener(
 
   const interactable = await isInteractable(opener.locator);
   if (!interactable) return { opener: opener.text, revealed: [], skipped: 'not-interactable' };
+
+  // Resolve the trigger to a captured element *before* clicking. If nothing in
+  // the model corresponds to it, nothing downstream could ever click it, so
+  // whatever it reveals is unusable — better to skip than to record elements
+  // with no way to reach them.
+  const openerElement = matchOpener(opener, ctx.captured);
+  if (openerElement === undefined) {
+    ctx.logger.debug(
+      { opener: opener.text },
+      'interaction pass: trigger is not a captured element, skipping',
+    );
+    return { opener: opener.text, revealed: [], skipped: 'opener-not-in-model' };
+  }
 
   const routes = recordRoutes(page);
   const clicked = await opener.locator
@@ -169,18 +232,24 @@ async function tryOpener(
     ...(ctx.testIdAttribute !== undefined ? { testIdAttribute: ctx.testIdAttribute } : {}),
     ...(ctx.i18n !== undefined ? { i18n: ctx.i18n } : {}),
     seenIds: ctx.seenIds,
+    provenance: { kind: 'revealed', openerElementId: openerElement.id },
   }).catch(() => [] as Element[]);
 
   await close(page, opener, ctx.baselineUrl);
 
   if (revealed.length === 0) {
-    return { opener: opener.text, revealed: [], skipped: 'nothing-revealed' };
+    return {
+      opener: opener.text,
+      openerElementId: openerElement.id,
+      revealed: [],
+      skipped: 'nothing-revealed',
+    };
   }
   ctx.logger.debug(
-    { opener: opener.text, revealed: revealed.length },
+    { opener: opener.text, openerElementId: openerElement.id, revealed: revealed.length },
     'interaction pass: elements revealed',
   );
-  return { opener: opener.text, revealed };
+  return { opener: opener.text, openerElementId: openerElement.id, revealed };
 }
 
 /** Substring match, case-insensitive — the same shape as the config examples. */

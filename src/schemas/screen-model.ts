@@ -45,6 +45,40 @@ export const ElementStatesSchema = z
   })
   .strict();
 
+/**
+ * How an element came to exist on the page.
+ *
+ * Added after Phase 1 with explicit operator approval (2026-08-11) — the only
+ * change to this file since the schemas were locked. Optional and additive, so
+ * Screen Models written before it still parse; absent means `page`.
+ *
+ * Without this the model says *what* an element is but never *how to reach it*,
+ * which showed up three ways: `--validate` reporting flow-captured elements as
+ * drift, the interaction pass losing which trigger reveals a menu item, and the
+ * Emitter being able to reference either without emitting the precondition.
+ */
+export const ElementProvenanceSchema = z.discriminatedUnion('kind', [
+  /** Present on page load. The default, and the only kind the Emitter may use freely. */
+  z.object({ kind: z.literal('page') }).strict(),
+  /** Exists only after clicking `openerElementId` — a menu item or modal control. */
+  z
+    .object({
+      kind: z.literal('revealed'),
+      openerElementId: z.string().min(1, 'openerElementId must name the element that reveals this'),
+    })
+    .strict(),
+  /** Exists only in the state a flow script drives the app into. */
+  z
+    .object({
+      kind: z.literal('flow'),
+      flowId: z.string().min(1),
+      /** Which `capture()` call in that flow, 0-based. */
+      step: z.number().int().min(0),
+    })
+    .strict(),
+]);
+export type ElementProvenance = z.infer<typeof ElementProvenanceSchema>;
+
 export const ElementSchema = z
   .object({
     id: z.string().min(1),
@@ -59,6 +93,8 @@ export const ElementSchema = z
     selectorCandidates: z.array(SelectorCandidateSchema),
     /** Frame path for elements inside same-origin iframes (Phase 1). */
     framePath: z.array(z.string()).optional(),
+    /** How this element came to exist. Absent = present on page load. */
+    provenance: ElementProvenanceSchema.optional(),
   })
   .strict();
 export type Element = z.infer<typeof ElementSchema>;

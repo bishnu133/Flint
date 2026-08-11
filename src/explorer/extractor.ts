@@ -1,5 +1,11 @@
 import type { Frame, Locator, Page as PwPage } from '@playwright/test';
-import type { Element, Page, ReachedVia, SelectorCandidate } from '../schemas/screen-model.js';
+import type {
+  Element,
+  ElementProvenance,
+  Page,
+  ReachedVia,
+  SelectorCandidate,
+} from '../schemas/screen-model.js';
 import { buildCandidates, applyVerification, type ElementFacts } from './selector-ranker.js';
 import { normalizePath, type NormalizeRule } from './url-policy.js';
 import { sha256 } from '../shared/hashing.js';
@@ -55,6 +61,8 @@ export interface ExtractOptions {
    * committed Screen Model is not tied to one machine's directory layout.
    */
   screenshotRef?: string;
+  /** Stamped onto every element on the page. Flows pass their flowId + step. */
+  provenance?: ElementProvenance;
 }
 
 const DEFAULT_MAX_ELEMENTS = 300;
@@ -93,6 +101,7 @@ export async function extractPage(page: PwPage, options: ExtractOptions = {}): P
       rankOptions,
       limit: remaining,
       seenIds,
+      ...(options.provenance !== undefined ? { provenance: options.provenance } : {}),
     });
     elements.push(...frameElements);
   }
@@ -142,6 +151,7 @@ interface FrameExtractOptions {
   rankOptions: { i18n: boolean; testIdAttribute: string };
   limit: number;
   seenIds: Set<string>;
+  provenance?: ElementProvenance;
 }
 
 export interface FrameElementsOptions {
@@ -151,6 +161,12 @@ export interface FrameElementsOptions {
   maxElements?: number;
   /** Element ids already captured; passing one across calls suppresses repeats. */
   seenIds?: Set<string>;
+  /**
+   * Stamped onto every element extracted in this call. The interaction pass
+   * passes `{kind:'revealed', openerElementId}` so the Emitter knows to click
+   * the opener first; page-load extraction leaves it unset.
+   */
+  provenance?: ElementProvenance;
 }
 
 /**
@@ -170,6 +186,7 @@ export async function extractFrameElements(
     rankOptions: { i18n: options.i18n === true, testIdAttribute },
     limit: options.maxElements ?? DEFAULT_MAX_ELEMENTS,
     seenIds: options.seenIds ?? new Set<string>(),
+    ...(options.provenance !== undefined ? { provenance: options.provenance } : {}),
   });
 }
 
@@ -220,6 +237,7 @@ async function extractElement(
     ...(facts.domId !== undefined && facts.domId !== '' ? { domId: facts.domId } : {}),
     ...(facts.elementFacts.text !== undefined ? { text: facts.elementFacts.text } : {}),
     ...(opts.framePath.length > 0 ? { framePath: opts.framePath } : {}),
+    ...(opts.provenance !== undefined ? { provenance: opts.provenance } : {}),
   };
 }
 

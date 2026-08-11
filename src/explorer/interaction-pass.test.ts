@@ -79,11 +79,11 @@ afterAll(async () => {
 });
 
 /** Fresh page + first-pass extraction, as the crawler does it. */
-async function firstPass(): Promise<Set<string>> {
+async function firstPass() {
   await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await waitForDomStable(page);
   const captured = await extractPage(page);
-  return new Set(captured.elements.map((e) => e.id));
+  return captured.elements;
 }
 
 describe('isDangerous', () => {
@@ -159,7 +159,8 @@ describe('runInteractionPass', () => {
   it('does not re-report elements the first pass already captured', async () => {
     const before = await firstPass();
     const result = await runInteractionPass(page, before, { dangerousActionPatterns: [] });
-    for (const element of result.revealed) expect(before.has(element.id)).toBe(false);
+    const beforeIds = new Set(before.map((e) => e.id));
+    for (const element of result.revealed) expect(beforeIds.has(element.id)).toBe(false);
   }, 90_000);
 
   it('respects maxOpeners', async () => {
@@ -169,6 +170,34 @@ describe('runInteractionPass', () => {
       maxOpeners: 1,
     });
     expect(result.outcomes).toHaveLength(1);
+  }, 90_000);
+
+  it('stamps revealed elements with the trigger that reveals them', async () => {
+    const before = await firstPass();
+    const result = await runInteractionPass(page, before, { dangerousActionPatterns: [] });
+
+    const acct = before.find((e) => e.domId === 'acct')!;
+    const settings = result.revealed.find((e) => e.testId === 'menu-settings')!;
+
+    // The Emitter needs this to click "Account" before touching "Settings".
+    expect(settings.provenance).toEqual({ kind: 'revealed', openerElementId: acct.id });
+    // And the id must resolve to a real element in the model, not a dangle.
+    expect(before.some((e) => e.id === acct.id)).toBe(true);
+  }, 90_000);
+
+  it('reports the opener element id on the outcome', async () => {
+    const before = await firstPass();
+    const result = await runInteractionPass(page, before, { dangerousActionPatterns: [] });
+    const acct = before.find((e) => e.domId === 'acct')!;
+    const outcome = result.outcomes.find((o) => o.opener === 'Account')!;
+    expect(outcome.openerElementId).toBe(acct.id);
+  }, 90_000);
+
+  it('skips a trigger that is not itself a captured element', async () => {
+    // Nothing downstream could click it, so whatever it reveals is unreachable.
+    const result = await runInteractionPass(page, [], { dangerousActionPatterns: [] });
+    expect(result.revealed).toEqual([]);
+    expect(result.outcomes.every((o) => o.skipped === 'opener-not-in-model')).toBe(true);
   }, 90_000);
 
   it('is deterministic — two passes over an unchanged page reveal the same ids', async () => {

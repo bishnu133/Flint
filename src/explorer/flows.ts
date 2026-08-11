@@ -239,6 +239,10 @@ export async function replayFlows(
           i18n: config.explorer.i18n,
           normalizeRules,
           reachedVia: { kind: 'flow', flowId: definition.id, step },
+          // Every element here exists only in the state this flow produced.
+          // Without that recorded, `--validate` reports them as drift and the
+          // Emitter would reference them with no precondition.
+          provenance: { kind: 'flow', flowId: definition.id, step },
           ...(options.role !== undefined ? { role: options.role } : {}),
         });
         pages.push(captured);

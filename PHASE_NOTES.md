@@ -593,10 +593,39 @@ first run. Without it, Phase 4 must either ignore flow- and interaction-derived
 elements entirely (throwing away real coverage — the operator's cart flow
 becomes decorative) or emit tests that fail.
 
-**Status: awaiting human approval per CLAUDE.md rule 4.** Asked and not yet
-answered; per rule 7 the simpler option was taken (no schema change) and the
-question recorded here. Nothing downstream has been built on the assumption
-that it will be approved.
+**Status: APPROVED by the operator, 2026-08-11.** This is the only change to
+`src/schemas/screen-model.ts` since the schemas were locked, and the only
+schema change of any kind since Phase 0 sign-off.
+
+Shipped as:
+
+```ts
+Element.provenance?:
+  | { kind: 'page' }                                  // present on page load
+  | { kind: 'revealed'; openerElementId: string }     // click the opener first
+  | { kind: 'flow'; flowId: string; step: number }    // replay the flow first
+```
+
+Optional and additive — Screen Models written before it still parse, and an
+absent value means `page`.
+
+What it changed in practice:
+
+- **The interaction pass now resolves its trigger to a real captured element**
+  before clicking, matching on test id, then DOM id, then an unambiguous
+  accessible name. A trigger that matches nothing in the model is skipped with
+  `opener-not-in-model` and its contents are discarded: nothing downstream
+  could click it, so whatever it reveals is unreachable. `openerElementId`
+  therefore always references an element that exists, never a dangle.
+- **Flow captures stamp `{kind:'flow', flowId, step}`** on every element, so a
+  state-dependent element carries the flow that produces it.
+- **`--validate` skips elements with a non-`page` provenance** and reports them
+  as `Needs a precondition: N` instead of counting them as drift. This is the
+  direct fix for the operator's 96.4%: both "broken" selectors were flow
+  captures. A test pins that the exemption is not a blanket amnesty — a
+  genuinely broken page-load selector is still reported.
+- **Phase 4 can now emit the precondition** rather than referencing a menu item
+  or cart button with no way to reach it.
 
 ## Phase 2 — Suite Indexer
 

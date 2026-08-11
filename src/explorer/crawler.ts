@@ -389,7 +389,7 @@ async function visit(page: PwPage, item: QueueItem, ctx: VisitContext): Promise<
   // Second pass: open menus and modals so their contents make it into the
   // model. Bounded to one interaction deep, and never touches a trigger on the
   // dangerous-action denylist.
-  const pass = await runInteractionPass(page, new Set(captured2.elements.map((e) => e.id)), {
+  const pass = await runInteractionPass(page, captured2.elements, {
     dangerousActionPatterns: config.explorer.dangerousActionPatterns,
     i18n: config.explorer.i18n,
     logger: ctx.logger,

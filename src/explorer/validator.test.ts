@@ -190,6 +190,51 @@ describe('validateModel', () => {
     expect(report.broken).toHaveLength(0);
   }, 90_000);
 
+  it('does not count a flow-captured element as drift', async () => {
+    // Mirrors the saucedemo case exactly: the cart's Remove button was captured
+    // by a flow that added an item, and genuinely does not exist on an empty
+    // cart. Before provenance this reported 96.4% against a healthy app.
+    const model = await captureModel();
+    const withFlowElement = {
+      ...model,
+      pages: model.pages.map((p) => ({
+        ...p,
+        elements: [
+          ...p.elements,
+          {
+            ...p.elements[0]!,
+            id: 'el-flow-only',
+            testId: 'remove-item',
+            provenance: { kind: 'flow' as const, flowId: 'populated-cart', step: 0 },
+            selectorCandidates: [
+              {
+                strategy: 'testid' as const,
+                value: '[data-testid="remove-item"]',
+                score: 100,
+                unique: true,
+                verified: true,
+              },
+            ],
+          },
+        ],
+      })),
+    };
+    const report = await validateModel(context, withFlowElement);
+    expect(report.elementsNeedingPrecondition).toBe(1);
+    expect(report.resolveRate).toBe(1);
+    expect(report.broken).toHaveLength(0);
+    expect(formatValidation(report)).toMatch(/Needs a precondition:\s+1/);
+  }, 90_000);
+
+  it('still reports a genuinely broken page-load selector as drift', async () => {
+    // The precondition exemption must not become a blanket amnesty.
+    const model = await captureModel();
+    variant = 'renamed-testid';
+    const report = await validateModel(context, model);
+    expect(report.elementsNeedingPrecondition).toBe(0);
+    expect(report.broken.length).toBeGreaterThan(0);
+  }, 90_000);
+
   it('reports a rate of 1 for an empty model rather than dividing by zero', async () => {
     const report = await validateModel(context, {
       version: '1',

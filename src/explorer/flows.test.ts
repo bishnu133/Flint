@@ -307,6 +307,32 @@ describe('replayFlows', () => {
     expect(ScreenModelSchema.safeParse(merged).success).toBe(true);
   }, 90_000);
 
+  it('stamps flow-captured elements with the flow and step that produced them', async () => {
+    clearFlows();
+    writeFlow(
+      'cart.md',
+      [
+        '---',
+        'id: populated-cart',
+        '---',
+        '',
+        '```ts',
+        'export default async (page, flint) => {',
+        '  await page.goto(flint.baseUrl + "/");',
+        '  await page.click("[data-testid=add-item]");',
+        '  await page.goto(flint.baseUrl + "/cart");',
+        '  await flint.capture();',
+        '};',
+        '```',
+      ].join('\n'),
+    );
+    const replay = await replayFlows(context, { config: config(), projectRoot });
+    const checkout = replay.pages[0]!.elements.find((e) => e.testId === 'checkout')!;
+    // Without this the validator reports it as drift and the Emitter would
+    // reference it with no precondition.
+    expect(checkout.provenance).toEqual({ kind: 'flow', flowId: 'populated-cart', step: 0 });
+  }, 90_000);
+
   it('numbers multiple captures so each state is distinguishable', async () => {
     clearFlows();
     writeFlow(

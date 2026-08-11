@@ -34,6 +34,13 @@ export interface ValidationReport {
   selectorsResolved: number;
   /** Elements with no verified-unique candidate at all — already unusable. */
   elementsWithoutUsableSelector: number;
+  /**
+   * Elements that only exist after a click or a flow. Not checked, because
+   * validation loads each page fresh: a cart's Remove button genuinely is not
+   * there when the cart is empty. Counting those as drift made a healthy
+   * saucedemo model report 96.4%.
+   */
+  elementsNeedingPrecondition: number;
   broken: BrokenSelector[];
   /** selectorsResolved / selectorsChecked, or 1 when nothing was checked. */
   resolveRate: number;
@@ -57,6 +64,7 @@ export async function validateModel(
     selectorsChecked: 0,
     selectorsResolved: 0,
     elementsWithoutUsableSelector: 0,
+    elementsNeedingPrecondition: 0,
     broken: [],
     resolveRate: 1,
   };
@@ -82,6 +90,12 @@ export async function validateModel(
       report.pagesChecked += 1;
 
       for (const element of modelPage.elements) {
+        // Reaching these needs a click or a flow replay that validation does
+        // not perform, so their absence is expected, not drift.
+        if (element.provenance !== undefined && element.provenance.kind !== 'page') {
+          report.elementsNeedingPrecondition += 1;
+          continue;
+        }
         const best = pickBest(element.selectorCandidates);
         if (best === undefined) {
           // Nothing usable was ever stored — counted separately so the resolve
@@ -144,6 +158,11 @@ export function formatValidation(report: ValidationReport): string {
   ];
   if (report.elementsWithoutUsableSelector > 0) {
     lines.push(`No usable selector:   ${report.elementsWithoutUsableSelector} (at capture time)`);
+  }
+  if (report.elementsNeedingPrecondition > 0) {
+    lines.push(
+      `Needs a precondition: ${report.elementsNeedingPrecondition} (menu/modal/flow — not checked)`,
+    );
   }
   if (report.pagesUnreachable.length > 0) {
     lines.push(`Unreachable pages:    ${report.pagesUnreachable.length}`);
