@@ -811,6 +811,37 @@ first, and the substring branch is skipped for a bare `/`. A hint of `/cart`
 still matches `/cart.html`. Tests in `page-matcher.test.ts`, which the module
 previously lacked entirely.
 
+### Second operator run — the planner swallowed its own diagnostics
+
+`flint plan login` reported, twice:
+
+```
+plan: invalid plan from the model  err="Anthropic API call failed (stage: plan)."
+error: Could not generate a valid TestPlan after two attempts.
+```
+
+Two defects, both mine.
+
+1. **The diagnosis was discarded.** `AnthropicProvider` puts the actionable
+   half in `hint` — the cause chain, the Node error code, and advice such as
+   which proxy variable to set. That machinery exists *because* a bare
+   "Connection error." wasted a round trip back in Phase 0. The planner relayed
+   only `err.message`, reducing a diagnosable auth or TLS problem to one useless
+   line. Provider failures are now re-thrown intact, and the retry feedback
+   carries message + hint.
+
+2. **A transport failure was retried as if it were a bad plan.** Retrying a 401
+   or a TLS handshake failure cannot help; it doubles the latency and prints
+   "invalid plan from the model" about something the model never saw. Only
+   `StructuredOutputError` — the model wrote the wrong shape — is retried now.
+   Everything else fails immediately with its cause. Tests pin both: a provider
+   failure calls `structured` exactly once, a schema mismatch exactly twice.
+
+Worth noting for later: `AnthropicProvider.structured` already retries twice
+internally on schema mismatch, so the planner's outer retry makes up to four
+attempts for malformed output. The outer one earns its place by feeding back the
+*referential* check, which the inner loop cannot see.
+
 ### Open item
 
 `flint plan` makes a real LLM call, so it needs `ANTHROPIC_API_KEY` and — on a

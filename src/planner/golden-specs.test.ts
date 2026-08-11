@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { FakeProvider } from '../llm/index.js';
+import type { LLMProvider } from '../llm/types.js';
+import { ProviderError, StructuredOutputError } from '../shared/errors.js';
 import { TestPlanSchema, type TestPlan } from '../schemas/test-plan.js';
 import type { ScreenModel, Element } from '../schemas/screen-model.js';
 import type { SuiteIndex } from '../schemas/suite-index.js';
@@ -342,17 +344,64 @@ describe('Phase 3 exit criteria — golden feature specs', () => {
     expect(result.plan.cases.every((c) => c.status !== 'skipped-duplicate')).toBe(true);
   });
 
-  it('retries once when the model returns unusable output, then gives up loudly', async () => {
+  it('surfaces a provider failure with its diagnosis instead of retrying it', async () => {
+    // A transport/auth failure is not a bad plan. Retrying it wastes a call and
+    // buries the one line that says what actually went wrong.
+    let calls = 0;
+    const failing = {
+      complete: () => Promise.reject(new Error('unused')),
+      chat: () => Promise.reject(new Error('unused')),
+      structured: () => {
+        calls += 1;
+        return Promise.reject(
+          new ProviderError('Anthropic API call failed (stage: plan).', {
+            hint: 'authentication_error: invalid x-api-key',
+          }),
+        );
+      },
+    } as unknown as LLMProvider;
+
     const spec = readFeatureSpec(root, 'kb', 'login');
     await expect(
       generatePlan({
         spec,
         model: MODEL,
-        provider: new FakeProvider({ responder: planningResponder({ misbehave: 'bad-json' }) }),
+        provider: failing,
+        modelId: 'fake-planner',
+        tokenBudget: 60_000,
+      }),
+    ).rejects.toThrow(/invalid x-api-key|Anthropic API call failed/);
+    expect(calls).toBe(1);
+  });
+
+  it('retries once when the model writes the wrong shape, then gives up loudly', async () => {
+    // What AnthropicProvider throws when the model's JSON does not match the
+    // TestPlan schema. That IS worth a retry with the error fed back.
+    let calls = 0;
+    const wrongShape = {
+      complete: () => Promise.reject(new Error('unused')),
+      chat: () => Promise.reject(new Error('unused')),
+      structured: () => {
+        calls += 1;
+        return Promise.reject(
+          new StructuredOutputError('Model output failed schema validation (stage: plan).', {
+            hint: 'cases: Required',
+          }),
+        );
+      },
+    } as unknown as LLMProvider;
+
+    const spec = readFeatureSpec(root, 'kb', 'login');
+    await expect(
+      generatePlan({
+        spec,
+        model: MODEL,
+        provider: wrongShape,
         modelId: 'fake-planner',
         tokenBudget: 60_000,
       }),
     ).rejects.toThrow(/after two attempts/);
+    expect(calls).toBe(2);
   });
 
   it('renders a plan whose checklist shows the covered criteria', async () => {

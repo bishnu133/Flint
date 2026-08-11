@@ -1,4 +1,5 @@
 import { TestPlanSchema, type TestPlan } from '../schemas/test-plan.js';
+import { FlintError as FlintErrorClass, StructuredOutputError } from '../shared/errors.js';
 import type { ScreenModel } from '../schemas/screen-model.js';
 import type { SuiteIndex } from '../schemas/suite-index.js';
 import type { LLMProvider } from '../llm/types.js';
@@ -104,7 +105,12 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
         meta: { stage: 'plan', purpose: `feature "${spec.frontmatter.id}" -> test plan` },
       })
       .catch((err: unknown) => {
-        lastError = err instanceof Error ? err.message : String(err);
+        // A transport, auth or budget failure is not something a retry can
+        // fix, and calling it "an invalid plan from the model" hides the real
+        // cause. Only a schema mismatch — the model wrote the wrong shape — is
+        // worth another attempt with the error fed back.
+        if (!(err instanceof StructuredOutputError)) throw relayProviderFailure(err);
+        lastError = describeError(err);
         return undefined;
       });
 
@@ -159,6 +165,32 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
     code: 'PLAN',
     hint: lastError ?? 'The model returned output that did not match the TestPlan schema.',
   });
+}
+
+/**
+ * Re-throw a provider failure with its diagnosis intact.
+ *
+ * `AnthropicProvider` puts the actionable half in `hint` — the cause chain,
+ * the Node error code, and advice such as which proxy variable to set. Relaying
+ * only `err.message` reduces a diagnosable TLS or auth problem to the useless
+ * line "Anthropic API call failed", which is exactly the failure this project
+ * built `describeRequestFailure` to avoid.
+ */
+function relayProviderFailure(err: unknown): Error {
+  if (err instanceof FlintErrorClass) return err;
+  return new FlintError('The planner could not reach the model.', {
+    code: 'PLAN',
+    cause: err,
+    hint: err instanceof Error ? err.message : String(err),
+  });
+}
+
+/** Message plus hint, so a retry sees everything a human would. */
+function describeError(err: unknown): string {
+  if (err instanceof FlintErrorClass) {
+    return err.hint === undefined ? err.message : `${err.message} ${err.hint}`;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** Fed back verbatim on the retry — the model fixes what it can see. */
