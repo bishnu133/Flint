@@ -15,11 +15,6 @@ interface StubSpec {
 
 const STUBS: StubSpec[] = [
   {
-    name: 'index',
-    phase: 2,
-    description: 'Build the Suite Index from the existing e2e/ suite',
-  },
-  {
     name: 'plan',
     phase: 3,
     description: 'Generate a TestPlan (Stage A) for a feature spec',

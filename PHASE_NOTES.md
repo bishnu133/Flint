@@ -530,3 +530,88 @@ Post-fix gates: 346 tests, 28 files; build, lint, format clean.
    Phase 1 exit criterion not verified here.
 2. Approve or reject `Element.revealedBy` (deviation 1 above).
 3. Decide whether page identity should include state (deviation 2 above).
+
+---
+
+## Phase 2 — Suite Indexer
+
+Phase 1 files are frozen from here. Phase 2 adds `src/indexer/` and one CLI
+command; the only edits to existing files are the two designated wiring points
+(`src/cli/index.ts` registration, and removing `index` from the Phase 0 stub
+list now that it is real).
+
+### Exit criteria — evidence
+
+| Criterion (master plan Part C, Phase 2)                  | Required | Measured                |
+| -------------------------------------------------------- | -------- | ----------------------- |
+| Index a 50-file suite                                      | < 10 s   | **25 ms**               |
+| Distinguishes generated / hand-written / hand-edited       | correct  | 3-way test, all classes |
+| Empty suite produces a valid empty index                   | valid    | schema-valid, no throw  |
+| No suite dir at all produces a valid empty index           | valid    | schema-valid + a NOTE   |
+| `pnpm test`                                                | green    | **391 tests, 31 files** |
+| `pnpm build` / `pnpm lint`                                 | clean    | clean                   |
+
+The 25 ms figure is printed by the test itself (`[exit criteria] indexed 50
+files in 25ms`) rather than asserted from memory. It is three orders of
+magnitude inside the budget because the scan is purely syntactic — see below.
+
+### Design decisions
+
+**No type resolution, ever.** `scanSuite` builds a ts-morph `Project` with
+`skipAddingFilesFromTsConfig`, `skipFileDependencyResolution` and
+`noResolve`. Nothing is type-checked and no lib files are loaded. Two
+consequences, both wanted: the scan is ~1000× inside its time budget, and a
+suite that does not compile still indexes. The plan requires the second
+outright ("TS parse errors in user files: skip file, warn, continue").
+
+**Directory layout is a hint, not a rule.** The plan is explicit that real
+suites will not follow our conventions. So: any exported class is a page
+object wherever it lives, any file calling `test(` or `it(` is a spec, and one
+file can be both. `fixtures/` and `data/` (or `.fixture.` / `.factory.` in the
+filename) select fixtures and factories. A flat single-file suite indexes
+correctly — there is a test for exactly that.
+
+**Managed-marker hashing excludes the marker line.** `withMarker` strips any
+existing marker before hashing and re-stamping, so it is idempotent: writing
+the marker cannot change the hash the marker records, and regenerating an
+unchanged file is byte-identical. Phase 4's determinism check depends on this.
+Truncated hashes in a marker are compared on the recorded length, so a
+hand-shortened marker is not misread as an edit.
+
+**Whitespace counts as an edit.** Reformatting a generated file marks it
+hand-edited. Regenerating it *would* discard that work, so the conservative
+answer is the correct one.
+
+**Marker classification reads raw bytes, not the ts-morph source.** ts-morph
+normalises whitespace, which would change the hash and report every managed
+file as hand-edited.
+
+### Deviations
+
+1. **`PageObjectMethod`, `Fixture` and `DataFactory` types are derived in
+   `scan.ts`**, not exported from `src/schemas/suite-index.ts`. The schema file
+   exports those *schemas* but not their inferred types, and it is LOCKED —
+   adding an export would be a change to a frozen Phase 0 file. Deriving them
+   locally with `z.infer<typeof XSchema>` gives identical types and touches
+   nothing frozen. If a later phase wants them centrally, that is a one-line
+   frozen-file edit needing approval.
+2. **Test identity in the coverage map is the test title**, not `file::title`.
+   The schema types `CoverageMap` as `featureId -> string[]` with no stated
+   format. Titles are what a human reads in a plan and what Phase 3 must match
+   against for duplicate detection, so titles are the useful key. Recorded here
+   because Phase 3 depends on the choice.
+3. **A `@feature:<id>` tag covers every test in the file it appears in.** Tags
+   can sit on a `describe`, on an individual test, or in the options object,
+   and distinguishing which tests a file-level tag applies to would need scope
+   analysis the syntactic scan deliberately avoids. Over-attribution is the
+   safe direction: Phase 3 uses coverage to *skip* duplicates, so a false
+   "covered" is caught by the human reviewing the plan, while a false
+   "uncovered" silently generates a duplicate test.
+
+### Frozen-file touches
+
+- `src/cli/index.ts` — registration line. Designated wiring point.
+- `src/cli/commands/stubs.ts` — `index` removed from the stub list because it
+  is now implemented. This is the intended lifecycle of that file.
+
+No other Phase 0 or Phase 1 file was modified.
