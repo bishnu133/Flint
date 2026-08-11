@@ -485,6 +485,44 @@ skips `_`-prefixed files and the template ships as `_example.md`, documented as
 The SPA exit criterion is still unverified — the demo URL was dead, not Flint.
 Post-fix gates: 335 tests, 27 files; build, lint, format clean.
 
+### Second demo-app run — the crawler could not see saucedemo's links
+
+The entry-point fix worked: the crawl now starts at `/inventory.html` and
+captures 28 elements there. But it then found **nothing to visit next** —
+2 crawled pages, and an empty `skipped` list, meaning not one link was even
+considered and rejected. Three separate causes, all real.
+
+1. **Relative hrefs resolved against `baseUrl`, not the page they were on.**
+   `decideScope` called `resolveUrl(href, options.baseUrl)`, so `href="item"`
+   found on `/products/list` became `/item`. Invisible on saucedemo (whose
+   `baseUrl` is the root) and silently wrong on any app with nested paths.
+   `decideScope` now takes the containing page URL.
+
+2. **Hash routes were discarded.** `resolveUrl` rejected every `#…` href and
+   `dedupeKey`/`normalizePath` dropped fragments, so a hash-routed SPA
+   (`#/login`, `#/settings` — several Conduit builds) collapsed to a single
+   page. A fragment starting `#/` is now treated as part of page identity;
+   `#section` is still an anchor and still ignored.
+
+3. **Links with no navigable href were invisible.** saucedemo is React: its
+   product, cart and menu links are `<a href="#">` with click handlers that
+   call the router. A crawler that follows hrefs finds zero. The routes
+   themselves are ordinary URLs that respond to `goto` — the crawler just
+   never learned them.
+
+   `route-discovery.ts` clicks such a link once, records where the app routed
+   to, restores the page, and hands the URL to the crawler to visit *by
+   navigation*. The safety model is unchanged in substance: the crawler still
+   only `goto`s vetted URLs, and this is the master plan's sanctioned bounded
+   -click escape hatch, restricted to link elements (never buttons), visible
+   ones only (a closed burger menu is never clicked), and filtered through
+   `dangerousActionPatterns`.
+
+   It runs **only on pages that offered no in-scope href at all**, so
+   server-rendered apps pay nothing for it. `--no-route-discovery` disables it.
+
+Post-fix gates: 346 tests, 28 files; build, lint, format clean.
+
 ### Open items carried into Phase 2
 
 1. Run `flint explore` against saucedemo.com and one SPA (Conduit) from a

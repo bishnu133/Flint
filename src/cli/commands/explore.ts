@@ -54,6 +54,7 @@ export function registerExplore(program: Command): void {
     )
     .option('--headed', 'run with a visible browser window', false)
     .option('--no-interaction-pass', 'skip opening menus/modals to catch hidden elements')
+    .option('--no-route-discovery', 'skip clicking href-less links to find client-side routes')
     .option('--no-flows', 'skip replaying the flow scripts in <kbDir>/app/flows')
     .option('--flow <id...>', 'replay only the named flow scripts')
     .option('-v, --verbose', 'verbose logging', false)
@@ -74,6 +75,8 @@ interface ExploreOptions {
   headed: boolean;
   /** commander maps `--no-interaction-pass` onto this, defaulting to true. */
   interactionPass: boolean;
+  /** commander maps `--no-route-discovery` onto this, defaulting to true. */
+  routeDiscovery: boolean;
   /** commander maps `--no-flows` onto this, defaulting to true. */
   flows: boolean;
   flow?: string[];
@@ -163,6 +166,7 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       ...(opts.role !== undefined ? { role: opts.role } : {}),
       screenshotDir,
       interactionPass: opts.interactionPass,
+      routeDiscovery: opts.routeDiscovery,
       reauth: () => reauthenticate(context, { config, projectRoot, logger }),
     });
 

@@ -7,6 +7,7 @@ import { basename, join } from 'node:path';
 import { extractPage, pageId } from './extractor.js';
 import { knownLoginUrl, looksLikeLoginWall } from './auth.js';
 import { runInteractionPass } from './interaction-pass.js';
+import { discoverClientRoutes } from './route-discovery.js';
 import { waitForDomStable } from './wait.js';
 import {
   decideScope,
@@ -44,6 +45,12 @@ export interface CrawlOptions {
   screenshotDir?: string;
   /** Run the bounded modal/menu interaction pass. Defaults to true. */
   interactionPass?: boolean;
+  /**
+   * Discover client-side routes by clicking links that have no navigable
+   * href. Defaults to true, and only runs on pages that offered the crawler
+   * no in-scope href at all — server-rendered apps never pay for it.
+   */
+  routeDiscovery?: boolean;
   /**
    * Log back in when the session expires mid-crawl. Supplied by the caller,
    * which is what owns the auth configuration; the crawler only decides *when*
@@ -140,6 +147,7 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
     policy,
     logger,
     interactionPass: options.interactionPass !== false,
+    routeDiscovery: options.routeDiscovery !== false,
     ...(options.role !== undefined ? { role: options.role } : {}),
     ...(options.screenshotDir !== undefined ? { screenshotDir: options.screenshotDir } : {}),
   };
@@ -318,6 +326,7 @@ interface VisitContext {
   policy: UrlPolicyOptions;
   logger: Logger;
   interactionPass: boolean;
+  routeDiscovery: boolean;
   role?: string;
   screenshotDir?: string;
 }
@@ -373,25 +382,59 @@ async function visit(page: PwPage, item: QueueItem, ctx: VisitContext): Promise<
       : {}),
   });
 
-  if (!ctx.interactionPass) return { kind: 'page', page: captured };
+  const withRoutes = await addClientRoutes(page, captured, ctx);
+  if (!ctx.interactionPass) return { kind: 'page', page: withRoutes };
+  const captured2 = withRoutes;
 
   // Second pass: open menus and modals so their contents make it into the
   // model. Bounded to one interaction deep, and never touches a trigger on the
   // dangerous-action denylist.
-  const pass = await runInteractionPass(page, new Set(captured.elements.map((e) => e.id)), {
+  const pass = await runInteractionPass(page, new Set(captured2.elements.map((e) => e.id)), {
     dangerousActionPatterns: config.explorer.dangerousActionPatterns,
     i18n: config.explorer.i18n,
     logger: ctx.logger,
   }).catch(() => undefined);
 
-  if (pass === undefined || pass.revealed.length === 0) return { kind: 'page', page: captured };
+  if (pass === undefined || pass.revealed.length === 0) return { kind: 'page', page: captured2 };
   ctx.logger.info(
     { url: item.url, revealed: pass.revealed.length },
     'interaction pass revealed additional elements',
   );
   return {
     kind: 'page',
-    page: { ...captured, elements: [...captured.elements, ...pass.revealed] },
+    page: { ...captured2, elements: [...captured2.elements, ...pass.revealed] },
+  };
+}
+
+/**
+ * Add client-side routes to a page's nav targets.
+ *
+ * Only runs when the page handed the crawler nothing navigable. A page with
+ * real same-origin hrefs is a server-rendered page and needs no clicking —
+ * which keeps the cost of this off every ordinary crawl.
+ */
+async function addClientRoutes(page: PwPage, captured: Page, ctx: VisitContext): Promise<Page> {
+  if (!ctx.routeDiscovery) return captured;
+  const navigable = captured.navTargets.filter(
+    (href) => decideScope(href, ctx.policy, captured.url).inScope,
+  );
+  if (navigable.length > 0) return captured;
+
+  const routes = await discoverClientRoutes(page, {
+    dangerousActionPatterns: ctx.config.explorer.dangerousActionPatterns,
+    logger: ctx.logger,
+  }).catch(() => []);
+  if (routes.length === 0) return captured;
+
+  ctx.logger.info(
+    { url: captured.url, routes: routes.length },
+    'discovered client-side routes on a page with no navigable links',
+  );
+  return {
+    ...captured,
+    navTargets: [...new Set([...captured.navTargets, ...routes.map((r) => r.url)])].sort((a, b) =>
+      a.localeCompare(b),
+    ),
   };
 }
 
@@ -430,7 +473,7 @@ interface EnqueueContext {
  */
 function enqueueTargets(captured: Page, item: QueueItem, ctx: EnqueueContext): void {
   for (const href of captured.navTargets) {
-    const decision = decideScope(href, ctx.policy);
+    const decision = decideScope(href, ctx.policy, captured.url);
     if (!decision.inScope) {
       // Cross-origin and unparseable links are normal and high-volume; only
       // record the configured rejections, which a user may want to review.

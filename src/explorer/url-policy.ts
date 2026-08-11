@@ -38,7 +38,10 @@ export function policyFromConfig(config: FlintConfig): UrlPolicyOptions {
  */
 export function resolveUrl(href: string, base: string): string | undefined {
   const trimmed = href.trim();
-  if (trimmed === '' || trimmed.startsWith('#')) return undefined;
+  if (trimmed === '') return undefined;
+  // `#section` is a same-page anchor and not a page. `#/settings` is a *route*
+  // in a hash-routed SPA — rejecting it makes such apps look like one page.
+  if (trimmed.startsWith('#') && !trimmed.startsWith('#/')) return undefined;
   let url: URL;
   try {
     url = new URL(trimmed, base);
@@ -109,8 +112,18 @@ export type ScopeDecision =
  * Decide whether a URL belongs in the crawl. Order matters: exclude wins over
  * include, so a user can include a broad pattern and carve exceptions out of it.
  */
-export function decideScope(rawUrl: string, options: UrlPolicyOptions): ScopeDecision {
-  const url = resolveUrl(rawUrl, options.baseUrl);
+export function decideScope(
+  rawUrl: string,
+  options: UrlPolicyOptions,
+  /**
+   * The page the href was found on. Relative hrefs are relative to *that*, not
+   * to `baseUrl` — `href="item"` on `/products/list` means `/products/item`.
+   * Resolving everything against `baseUrl` silently rewrites those to `/item`.
+   * Defaults to `baseUrl` for callers that have no page context.
+   */
+  from?: string,
+): ScopeDecision {
+  const url = resolveUrl(rawUrl, from ?? options.baseUrl);
   if (url === undefined) return { inScope: false, reason: 'unparseable' };
   if (!isSameOrigin(url, options.baseUrl)) return { inScope: false, reason: 'cross-origin' };
 
@@ -138,7 +151,9 @@ export function decideScope(rawUrl: string, options: UrlPolicyOptions): ScopeDec
 export function normalizePath(url: string, rules: NormalizeRule[] = []): string {
   const path = (() => {
     try {
-      return new URL(url).pathname;
+      const parsed = new URL(url);
+      // A routing fragment is part of page identity; a plain anchor is not.
+      return parsed.hash.startsWith('#/') ? `${parsed.pathname}${parsed.hash}` : parsed.pathname;
     } catch {
       return url;
     }
