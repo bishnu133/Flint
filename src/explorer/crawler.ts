@@ -5,7 +5,7 @@ import type { FlintConfig } from '../schemas/config.js';
 import type { Page, ScreenModel } from '../schemas/screen-model.js';
 import { basename, join } from 'node:path';
 import { extractPage, pageId } from './extractor.js';
-import { looksLikeLoginWall } from './auth.js';
+import { knownLoginUrl, looksLikeLoginWall } from './auth.js';
 import { runInteractionPass } from './interaction-pass.js';
 import { waitForDomStable } from './wait.js';
 import {
@@ -31,6 +31,13 @@ export interface CrawlOptions {
   logger?: Logger;
   /** Override the crawl entry point; defaults to `config.baseUrl`. */
   startUrl?: string;
+  /**
+   * Extra entry points seeded alongside `startUrl`. The CLI uses this to keep
+   * modelling `baseUrl` (typically the sign-in page) after redirecting the
+   * primary entry point to wherever the login landed — a test generator needs
+   * the login screen in the model to generate a login test.
+   */
+  alsoCrawl?: string[];
   /** Role tag for multi-role exploration. */
   role?: string;
   /** Directory for screenshots; omitted = none. */
@@ -98,8 +105,15 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
   const explorer = config.explorer;
 
   const startUrl = options.startUrl ?? config.baseUrl;
-  const queue: QueueItem[] = [{ url: startUrl, depth: 0, href: startUrl }];
-  const seen = new Set<string>([dedupeKey(startUrl, policy.normalize)]);
+  const seeds = [startUrl, ...(options.alsoCrawl ?? [])];
+  const queue: QueueItem[] = [];
+  const seen = new Set<string>();
+  for (const seed of seeds) {
+    const key = dedupeKey(seed, policy.normalize);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    queue.push({ url: seed, depth: 0, href: seed });
+  }
   const pages: Page[] = [];
   const skipped: SkippedUrl[] = [];
   /**
@@ -109,9 +123,13 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
    * one id. The master plan wants one representative page per pattern, so the
    * pattern is tracked separately and the duplicates never enter the model.
    */
-  const claimedPageIds = new Set<string>([
-    pageId(normalizePath(startUrl, policy.normalize), options.role),
-  ]);
+  const claimedPageIds = new Set<string>(
+    queue.map((q) => pageId(normalizePath(q.url, policy.normalize), options.role)),
+  );
+
+  // The app's own sign-in page is a login wall by every DOM signal, but it is
+  // not session expiry — it is a page the crawl is meant to model.
+  const loginUrl = knownLoginUrl(config);
 
   let loginWallSuspected: LoginWallDiagnosis | undefined;
   let sessionExpiry: SessionExpiry | undefined;
@@ -148,6 +166,7 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
       if (
         config.auth.mode !== 'none' &&
         item.depth > 0 &&
+        !isSameUrlPath(item.url, loginUrl) &&
         (await looksLikeLoginWall(page).catch(() => false))
       ) {
         if (reauthUsed || options.reauth === undefined) {
@@ -211,8 +230,9 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
 
       // Diagnose the entry page only: if the app's front door is a login wall,
       // every page this crawl reports is a login screen and the page count is
-      // actively misleading.
-      if (item.depth === 0) {
+      // actively misleading. `pages.length === 1` means this was the first
+      // capture — the primary seed, not the extra ones seeded beside it.
+      if (item.depth === 0 && pages.length === 1) {
         loginWallSuspected = await diagnoseLoginWall(page, item.url, config);
         if (loginWallSuspected !== undefined) {
           logger.warn(
@@ -256,6 +276,18 @@ export async function crawl(context: BrowserContext, options: CrawlOptions): Pro
     ...(loginWallSuspected !== undefined ? { loginWallSuspected } : {}),
     ...(sessionExpiry !== undefined ? { sessionExpiry } : {}),
   };
+}
+
+/** Same origin and same path — query and fragment are not identity here. */
+function isSameUrlPath(url: string, other: string | undefined): boolean {
+  if (other === undefined) return false;
+  try {
+    const a = new URL(url);
+    const b = new URL(other);
+    return a.origin === b.origin && a.pathname.replace(/\/$/, '') === b.pathname.replace(/\/$/, '');
+  } catch {
+    return false;
+  }
 }
 
 /**

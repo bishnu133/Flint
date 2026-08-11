@@ -29,18 +29,32 @@ export interface AuthOptions {
 /** The shape a `loginScript` module must export. */
 export type LoginScript = (page: Page) => Promise<void>;
 
+export interface AuthSession {
+  context: BrowserContext;
+  /**
+   * Where the login flow finished, when a login was actually performed.
+   *
+   * This matters more than it looks. An app's `baseUrl` is frequently its
+   * *login* page — saucedemo's is — and logging in does not make it stop being
+   * one. Crawling from `baseUrl` after a successful login therefore re-lands
+   * on the sign-in form and models nothing. The page the login landed on is
+   * the real entry point to the authenticated app.
+   */
+  landingUrl?: string;
+}
+
 /** Build a context, authenticating first when the config asks for it. */
 export async function createAuthenticatedContext(
   browser: Browser,
   options: AuthOptions,
-): Promise<BrowserContext> {
+): Promise<AuthSession> {
   const { config, projectRoot } = options;
   const logger = options.logger ?? silentLogger();
   const auth = config.auth;
 
   switch (auth.mode) {
     case 'none':
-      return createContext(browser);
+      return { context: await createContext(browser) };
 
     case 'storageState': {
       const path = absolute(projectRoot, auth.storageStatePath);
@@ -51,16 +65,18 @@ export async function createAuthenticatedContext(
         });
       }
       logger.info({ mode: 'storageState' }, 'auth: reusing stored session');
-      return createContext(browser, { storageStatePath: path });
+      return { context: await createContext(browser, { storageStatePath: path }) };
     }
 
     case 'loginScript': {
       const script = await loadLoginScript(absolute(projectRoot, auth.loginScriptPath));
       const context = await createContext(browser);
       const page = await context.newPage();
+      let landingUrl: string | undefined;
       try {
         await script(page);
-        logger.info({ mode: 'loginScript' }, 'auth: login script completed');
+        landingUrl = page.url();
+        logger.info({ mode: 'loginScript', landingUrl }, 'auth: login script completed');
       } catch (err) {
         await context.close().catch(() => undefined);
         throw new FlintError('The login script threw while authenticating.', {
@@ -71,22 +87,27 @@ export async function createAuthenticatedContext(
       } finally {
         await page.close().catch(() => undefined);
       }
-      return context;
+      return { context, ...(usableLanding(landingUrl) ? { landingUrl } : {}) };
     }
 
     case 'credentials': {
       const context = await createContext(browser);
       const page = await context.newPage();
+      let landingUrl: string | undefined;
       try {
         await performCredentialLogin(page, auth, config.baseUrl);
-        logger.info({ mode: 'credentials', user: auth.username }, 'auth: credential login OK');
+        landingUrl = page.url();
+        logger.info(
+          { mode: 'credentials', user: auth.username, landingUrl },
+          'auth: credential login OK',
+        );
       } catch (err) {
         await context.close().catch(() => undefined);
         throw err;
       } finally {
         await page.close().catch(() => undefined);
       }
-      return context;
+      return { context, ...(usableLanding(landingUrl) ? { landingUrl } : {}) };
     }
   }
 }
@@ -129,6 +150,20 @@ export async function reauthenticate(context: BrowserContext, options: AuthOptio
   } finally {
     await page.close().catch(() => undefined);
   }
+}
+
+/** `about:blank` and friends are not somewhere a crawl can start. */
+function usableLanding(url: string | undefined): url is string {
+  return url !== undefined && (url.startsWith('http://') || url.startsWith('https://'));
+}
+
+/**
+ * The URL a login form lives at, when the config names one. The crawler uses
+ * this to tell "the session expired" apart from "this is the app's own sign-in
+ * page", which are indistinguishable from the DOM alone.
+ */
+export function knownLoginUrl(config: FlintConfig): string | undefined {
+  return config.auth.mode === 'credentials' ? (config.auth.loginUrl ?? config.baseUrl) : undefined;
 }
 
 function absolute(projectRoot: string, path: string): string {

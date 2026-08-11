@@ -155,6 +155,14 @@ describe('discoverFlowFiles', () => {
     expect(discoverFlowFiles(projectRoot, 'no-such-kb')).toEqual([]);
   });
 
+  it('skips _-prefixed files so the shipped example never runs', () => {
+    clearFlows();
+    writeFlow('_example.md', '```ts\nexport default async () => {};\n```');
+    writeFlow('real.md', '```ts\nexport default async () => {};\n```');
+    const files = discoverFlowFiles(projectRoot, 'kb').map((p) => p.split('/').pop());
+    expect(files).toEqual(['real.md']);
+  });
+
   it('lists .md files in sorted order and ignores everything else', () => {
     clearFlows();
     writeFlow('b.md', '```ts\nexport default async () => {};\n```');

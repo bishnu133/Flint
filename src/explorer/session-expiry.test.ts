@@ -135,7 +135,11 @@ function config(): FlintConfig {
 }
 
 async function authedContext(): Promise<BrowserContext> {
-  return createAuthenticatedContext(browser, { config: config(), projectRoot: dir });
+  const session = await createAuthenticatedContext(browser, {
+    config: config(),
+    projectRoot: dir,
+  });
+  return session.context;
 }
 
 describe('mid-crawl session expiry', () => {

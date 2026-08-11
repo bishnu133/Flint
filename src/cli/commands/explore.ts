@@ -16,6 +16,7 @@ import {
   writeModel,
 } from '../../explorer/screen-model-store.js';
 import { validateModel, formatValidation } from '../../explorer/validator.js';
+import { isSameOrigin } from '../../explorer/url-policy.js';
 import {
   formatReplay,
   mergeFlowPages,
@@ -114,7 +115,11 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
 
   const browser = await launchBrowser({ headed: opts.headed });
   try {
-    const context = await createAuthenticatedContext(browser, { config, projectRoot, logger });
+    const { context, landingUrl } = await createAuthenticatedContext(browser, {
+      config,
+      projectRoot,
+      logger,
+    });
 
     // --validate replays the stored model; it does not crawl.
     if (opts.validate) {
@@ -125,7 +130,13 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       const pct = report.resolveRate * 100;
       const threshold = opts.minResolveRate;
       console.log('');
-      if (pct + 1e-9 < threshold) {
+      // "100% of nothing" is not a pass. An empty or unreachable model must
+      // never report green — that is exactly how a broken crawl hides.
+      if (report.selectorsChecked === 0) {
+        console.log('FAIL: nothing to validate — the stored model has no resolvable selectors.');
+        console.log('      Re-run `flint explore` and check it captured pages.');
+        process.exitCode = 1;
+      } else if (pct + 1e-9 < threshold) {
         console.log(`FAIL: resolve rate ${pct.toFixed(1)}% is below the ${threshold}% threshold.`);
         process.exitCode = 1;
       } else {
@@ -134,10 +145,21 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       return;
     }
 
+    // Where to start. An app's baseUrl is very often its sign-in page, and
+    // logging in does not change that — crawling from it after a successful
+    // login just re-lands on the form. Start where the login landed instead,
+    // and seed baseUrl alongside so the sign-in page is still modelled.
+    const entry = chooseEntryPoint(opts.url, landingUrl, config.baseUrl);
+    const alsoCrawl = entry === config.baseUrl ? [] : [config.baseUrl];
+    if (entry !== config.baseUrl && opts.url === undefined) {
+      console.log(`Starting from the post-login page: ${entry}`);
+    }
+
     const result = await crawl(context, {
       config: effective,
       logger,
-      ...(opts.url !== undefined ? { startUrl: opts.url } : {}),
+      startUrl: entry,
+      ...(alsoCrawl.length > 0 ? { alsoCrawl } : {}),
       ...(opts.role !== undefined ? { role: opts.role } : {}),
       screenshotDir,
       interactionPass: opts.interactionPass,
@@ -197,6 +219,19 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       return;
     }
 
+    if (model.pages.length === 0) {
+      console.log('\nFAIL: no pages were captured — nothing was written.');
+      console.log(`  entry point: ${entry}`);
+      const navFailed = result.skipped.find((s) => s.reason === 'nav-failed');
+      if (navFailed !== undefined) {
+        console.log(`  the entry point could not be loaded: ${navFailed.detail ?? ''}`);
+        console.log('  check baseUrl in flint.config.ts, and that the app is reachable.');
+      }
+      // Refuse to replace a good stored model with an empty one.
+      process.exitCode = 1;
+      return;
+    }
+
     writeModel(path, model);
     console.log(`\nScreen Model written to ${path}`);
   } finally {
@@ -245,6 +280,21 @@ function printSessionExpiry(expiry: SessionExpiry): void {
   console.log(`  stopped at: ${expiry.url}`);
   if (expiry.detail !== undefined) console.log(`  reason: ${expiry.detail}`);
   process.exitCode = 1;
+}
+
+/**
+ * `--url` always wins; then the post-login landing page, but only when it is
+ * same-origin with the configured app (an SSO hop can land anywhere, and the
+ * crawler is origin-locked).
+ */
+function chooseEntryPoint(
+  override: string | undefined,
+  landingUrl: string | undefined,
+  baseUrl: string,
+): string {
+  if (override !== undefined) return override;
+  if (landingUrl !== undefined && isSameOrigin(landingUrl, baseUrl)) return landingUrl;
+  return baseUrl;
 }
 
 function trimSlash(url: string): string {

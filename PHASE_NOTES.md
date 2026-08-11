@@ -439,6 +439,52 @@ wrong against a real app the plan explicitly names.
 
 Post-review gates: 330 tests, 26 files; build, lint, format clean.
 
+### First real demo-app run (operator, saucedemo) — four defects
+
+The run proved determinism (`--diff` clean on a live site), flow replay (the
+`populated-cart` flow captured 13 elements on a cart the crawl cannot reach),
+and 330 tests green. It also failed its headline step, for four reasons.
+
+1. **The crawl restarted at `baseUrl` after logging in.** `saucedemo.com/` *is*
+   the login page and keeps serving the sign-in form to authenticated visitors.
+   So: login succeeded, the auth bootstrap closed its page and threw away the
+   URL it had landed on (`/inventory.html`), the crawl restarted at `baseUrl`,
+   and the model contained one page — the login screen — under a "session did
+   not carry into the crawl" warning. Every component worked; the entry point
+   was wrong. `createAuthenticatedContext` now returns `AuthSession { context,
+   landingUrl }`, and the CLI starts the crawl from `landingUrl` when it is
+   same-origin with `baseUrl` (`--url` still wins). Tests in
+   `login-at-root.test.ts` model the saucedemo shape exactly.
+
+2. **`baseUrl` would then have been dropped from the model.** Starting inside
+   the app means nothing links back to the sign-in page, and a test generator
+   that cannot see the login screen cannot generate a login test. `CrawlOptions.
+   alsoCrawl` seeds extra depth-0 entry points; the CLI passes `baseUrl` when
+   the entry point was redirected. The entry-page login-wall diagnostic now
+   fires only for the *first* captured page, not for every depth-0 seed.
+
+3. **The app's own sign-in page read as session expiry.** With `alsoCrawl`
+   seeding `/`, the depth-0 exemption alone was not enough — any app linking
+   its own `/login` would trip the expiry path once authenticated. `knownLoginUrl
+   (config)` exposes the configured login URL and the crawler exempts it by
+   origin+path. A login wall *elsewhere* still means expiry, as before.
+
+4. **A dead SPA URL reported success.** `demo.realworld.build` no longer
+   resolves. The crawl captured 0 pages, wrote an empty model over the stored
+   one, and exited 0 — and `--validate` then reported "PASS: resolve rate
+   100.0%" against it, because 0/0 was defined as 1. Both now fail loudly: a
+   0-page crawl prints the nav failure and refuses to overwrite the stored
+   model, and `--validate` fails when `selectorsChecked === 0` rather than
+   reporting 100% of nothing.
+
+Also fixed: the scaffolded example flow **ran on every new project** and was
+reported as a failed flow when it could not reach the app. Flow discovery now
+skips `_`-prefixed files and the template ships as `_example.md`, documented as
+"copy me, do not edit in place".
+
+The SPA exit criterion is still unverified — the demo URL was dead, not Flint.
+Post-fix gates: 335 tests, 27 files; build, lint, format clean.
+
 ### Open items carried into Phase 2
 
 1. Run `flint explore` against saucedemo.com and one SPA (Conduit) from a

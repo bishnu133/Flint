@@ -128,7 +128,7 @@ function config(auth: Record<string, unknown>): FlintConfig {
 
 describe('auth mode: none', () => {
   it('returns a plain context', async () => {
-    const ctx = await createAuthenticatedContext(browser, {
+    const { context: ctx } = await createAuthenticatedContext(browser, {
       config: config({ mode: 'none' }),
       projectRoot: dir,
     });
@@ -142,7 +142,7 @@ describe('auth mode: none', () => {
 
 describe('auth mode: credentials', () => {
   it('logs in and yields an authenticated context', async () => {
-    const ctx = await createAuthenticatedContext(browser, {
+    const { context: ctx } = await createAuthenticatedContext(browser, {
       config: config({
         mode: 'credentials',
         username: 'good',
@@ -158,10 +158,27 @@ describe('auth mode: credentials', () => {
     await ctx.close();
   }, 60_000);
 
+  it('reports where the login landed, so the crawl can start inside the app', async () => {
+    const session = await createAuthenticatedContext(browser, {
+      config: config({
+        mode: 'credentials',
+        username: 'good',
+        password: 'pw',
+        loginUrl: `${baseUrl}/login`,
+      }),
+      projectRoot: dir,
+    });
+    // The login redirected to /dashboard. Without this the caller would have
+    // to restart at baseUrl — which on apps like saucedemo *is* the login
+    // page, so the crawl would never get inside the app at all.
+    expect(session.landingUrl).toBe(`${baseUrl}/dashboard`);
+    await session.context.close();
+  }, 60_000);
+
   it('waits out an SPA login that swaps the form without navigating', async () => {
     // The password field is still visible at domcontentloaded; an instant
     // check would declare failure. The bounded settle wait must not.
-    const ctx = await createAuthenticatedContext(browser, {
+    const { context: ctx } = await createAuthenticatedContext(browser, {
       config: config({
         mode: 'credentials',
         username: 'good',
@@ -214,7 +231,7 @@ describe('auth mode: storageState', () => {
 
   it('reuses a saved session', async () => {
     // Log in once and persist the session.
-    const seed = await createAuthenticatedContext(browser, {
+    const { context: seed } = await createAuthenticatedContext(browser, {
       config: config({
         mode: 'credentials',
         username: 'good',
@@ -227,7 +244,7 @@ describe('auth mode: storageState', () => {
     await seed.storageState({ path: statePath });
     await seed.close();
 
-    const ctx = await createAuthenticatedContext(browser, {
+    const { context: ctx } = await createAuthenticatedContext(browser, {
       config: config({ mode: 'storageState', storageStatePath: statePath }),
       projectRoot: dir,
     });
@@ -252,7 +269,7 @@ describe('auth mode: loginScript', () => {
        };`,
       'utf8',
     );
-    const ctx = await createAuthenticatedContext(browser, {
+    const { context: ctx } = await createAuthenticatedContext(browser, {
       config: config({ mode: 'loginScript', loginScriptPath: scriptPath }),
       projectRoot: dir,
     });

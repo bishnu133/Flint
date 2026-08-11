@@ -21,8 +21,10 @@ Your script receives two arguments:
   want in the Screen Model; captures are numbered in call order. If you never
   call it, Flint snapshots once where the flow ends.
 
-Rename this file (the filename is the flow id when there is no `id:` in the
-frontmatter) and delete this example once you have a real flow.
+**This file does not run.** Flint skips `_`-prefixed files, so the placeholder
+below never executes against your app. Copy it to a name without the
+underscore — `cart.md`, `checkout.md` — and it becomes a live flow. The
+filename is the flow id when the frontmatter has no `id:`.
 
 ```ts
 export default async (page, flint) => {

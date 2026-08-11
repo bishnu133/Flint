@@ -68,10 +68,15 @@ export function discoverFlowFiles(projectRoot: string, kbDir: string): string[] 
     ? join(kbDir, FLOWS_SUBDIR)
     : resolve(projectRoot, kbDir, FLOWS_SUBDIR);
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((name) => name.endsWith('.md'))
-    .sort((a, b) => a.localeCompare(b))
-    .map((name) => join(dir, name));
+  return (
+    readdirSync(dir)
+      // `_`-prefixed files are documentation, not flows. The shipped template is
+      // `_example.md` for exactly this reason: a brand-new project must not
+      // replay a placeholder script and report it as a failed flow.
+      .filter((name) => name.endsWith('.md') && !name.startsWith('_'))
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => join(dir, name))
+  );
 }
 
 const CODE_FENCE = /^```(ts|typescript|js|javascript)\s*$([\s\S]*?)^```\s*$/m;
