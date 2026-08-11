@@ -36,6 +36,8 @@ export class AnthropicProvider implements LLMProvider {
   private readonly client: Anthropic;
   private readonly logger: Logger;
   private readonly logPrompts: boolean;
+  /** Models that rejected `temperature` — learned at runtime, never guessed. */
+  private readonly noTemperature = new Set<string>();
 
   constructor(options: AnthropicProviderOptions = {}) {
     const apiKey = options.apiKey ?? process.env.ANTHROPIC_API_KEY;
@@ -151,15 +153,37 @@ export class AnthropicProvider implements LLMProvider {
     promptForLog: string,
   ): Promise<LLMResult> {
     const started = Date.now();
+    const request = (withTemperature: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
+      model: params.model,
+      max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+      ...(withTemperature && params.temperature !== undefined
+        ? { temperature: params.temperature }
+        : {}),
+      ...(params.system !== undefined ? { system: params.system } : {}),
+      messages: params.messages,
+    });
+
     let response: Anthropic.Message;
     try {
-      response = await this.client.messages.create({
-        model: params.model,
-        max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
-        ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-        ...(params.system !== undefined ? { system: params.system } : {}),
-        messages: params.messages,
-      });
+      const sendTemperature = !this.noTemperature.has(params.model);
+      try {
+        response = await this.client.messages.create(request(sendTemperature));
+      } catch (err) {
+        // Newer models reject the temperature parameter outright
+        // ("`temperature` is deprecated for this model"). The model id is the
+        // user's choice in flint.config.ts, so a hardcoded list would rot;
+        // instead, learn from the rejection, drop the parameter, and retry
+        // once. The model is remembered so later calls skip it up front.
+        if (!(sendTemperature && params.temperature !== undefined && isTemperatureRejection(err))) {
+          throw err;
+        }
+        this.noTemperature.add(params.model);
+        this.logger.warn(
+          { model: params.model },
+          'model rejects the temperature parameter — retrying without it',
+        );
+        response = await this.client.messages.create(request(false));
+      }
     } catch (err) {
       throw new ProviderError(`Anthropic API call failed (stage: ${meta.stage}).`, {
         cause: err,
@@ -219,6 +243,12 @@ const NETWORK_CAUSE_HINTS: Readonly<Record<string, string>> = Object.freeze({
  * which tells the user nothing. The real reason (DNS, refused, TLS, proxy) is
  * carried on the error's `cause` chain, so we walk it and name what to check.
  */
+/** Does this API error say the model refuses the temperature parameter? */
+export function isTemperatureRejection(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /temperature/i.test(message) && /(deprecated|not supported|unsupported)/i.test(message);
+}
+
 export function describeRequestFailure(err: unknown): string | undefined {
   const parts: string[] = [];
   const top = err instanceof Error ? err.message : String(err);

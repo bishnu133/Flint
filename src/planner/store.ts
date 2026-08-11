@@ -86,9 +86,22 @@ export function readAllPlans(projectRoot: string): TestPlan[] {
  * and a `blocked` case has no test at all — counting either would make a
  * feature look covered when nothing runs.
  */
-export function planHistoryCoverage(projectRoot: string): CoverageMap {
+export function planHistoryCoverage(
+  projectRoot: string,
+  options: {
+    /**
+     * Feature whose own history must NOT count as coverage — the one being
+     * re-planned. Without this, planning a feature twice dedupes the new plan
+     * against the old one: every case comes back `skipped-duplicate`, with
+     * `duplicateOf` naming tests that were never generated. A re-plan
+     * supersedes its predecessor; only *other* features' plans are coverage.
+     */
+    excludeFeature?: string;
+  } = {},
+): CoverageMap {
   const coverage: CoverageMap = {};
   for (const plan of readAllPlans(projectRoot)) {
+    if (plan.featureId === options.excludeFeature) continue;
     const titles = plan.cases
       .filter((c) => c.status === 'new' || c.status === 'update-existing')
       .map((c) => c.title);

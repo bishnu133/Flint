@@ -842,6 +842,45 @@ internally on schema mismatch, so the planner's outer retry makes up to four
 attempts for malformed output. The outer one earns its place by feeding back the
 *referential* check, which the inner loop cannot see.
 
+### Anchor review across Phases 0–3 (operator-requested, 2026-08-11)
+
+A full pass over the codebase against the master plan, prompted by the third
+operator run. Three fixes shipped; the standing gaps are re-confirmed below so
+they cannot silently become "done".
+
+**Fixed 1 — `claude-opus-5` rejects `temperature`, so every plan call 400'd.**
+The API now answers ``temperature` is deprecated for this model` for newer
+models, and the provider sent `temperature: 0` on all structured calls (the
+determinism convention). `hello-llm` passed only because it uses haiku. The
+provider now learns from the rejection at runtime: drops the parameter, retries
+once, and remembers the model so later calls skip it up front. No hardcoded
+model list — the model id is the user's choice in flint.config.ts and a list
+would rot. The LOCKED "temperature 0 for code emission" rule is honoured
+wherever the API accepts the parameter; where it refuses, there is nothing to
+send. Tests stub the SDK boundary and pin: rejection → retry without → learned;
+unrelated 400s untouched.
+
+**Fixed 2 — re-planning a feature deduped against its own previous plan.**
+`planHistoryCoverage` fed the feature's own stored plan into the coverage map,
+so a second `flint plan login` would force every case to `skipped-duplicate`
+with `duplicateOf` naming tests that were never generated. A re-plan supersedes
+its predecessor; only *other* features' plans are coverage. The operator would
+have hit this on their second successful run.
+
+**Fixed 3 — cross-origin iframes were skipped silently.** The plan's iframe
+scenario says "skip cross-origin, log them". A page whose main content lives in
+a cross-origin iframe would have indexed as "no elements" with no explanation.
+The extractor now logs each skipped frame with the page it sits on.
+
+**Standing gaps, re-confirmed (documented, not forgotten):**
+
+| Gap | Why it stands |
+| --- | --- |
+| `explorer.roles[]` has no consumer | Proper multi-role needs per-role auth; the LOCKED config schema has a single `auth` block. Needs a schema decision, not a workaround. `--role` covers manual per-role runs. |
+| Closed shadow roots not detected | The DOM offers no reliable signal (`shadowRoot === null` also means "no shadow root"). Logged-as-unreachable would be guesswork. |
+| `--review` prints rather than opens | Opening an editor is environment-specific; printing is the portable 90%. |
+| saucedemo + SPA live exit criterion | saucedemo now verified live by the operator across explore/validate/diff/index. The SPA demo app remains unverified — every public RealWorld deployment tried was dead. |
+
 ### Open item
 
 `flint plan` makes a real LLM call, so it needs `ANTHROPIC_API_KEY` and — on a

@@ -9,6 +9,7 @@ import type {
 import { buildCandidates, applyVerification, type ElementFacts } from './selector-ranker.js';
 import { normalizePath, type NormalizeRule } from './url-policy.js';
 import { sha256 } from '../shared/hashing.js';
+import { silentLogger, type Logger } from '../shared/logger.js';
 
 /**
  * Per-page element extraction.
@@ -63,6 +64,7 @@ export interface ExtractOptions {
   screenshotRef?: string;
   /** Stamped onto every element on the page. Flows pass their flowId + step. */
   provenance?: ElementProvenance;
+  logger?: Logger;
 }
 
 const DEFAULT_MAX_ELEMENTS = 300;
@@ -85,12 +87,18 @@ export async function extractPage(page: PwPage, options: ExtractOptions = {}): P
   const elements: Element[] = [];
   const seenIds = new Set<string>();
 
-  // Main frame first, then same-origin child frames (cross-origin are skipped
-  // by the caller and logged — we cannot reach into them).
-  const frames: Array<{ frame: Frame; framePath: string[] }> = [
-    { frame: page.mainFrame(), framePath: [] },
-    ...sameOriginChildFrames(page),
-  ];
+  // Main frame first, then same-origin child frames. Cross-origin frames are
+  // unreachable — the browser gives us an opaque handle — so they are skipped,
+  // and logged, because a page whose main content lives in a cross-origin
+  // iframe would otherwise index as "no elements" with no explanation.
+  const logger = options.logger ?? silentLogger();
+  const { frames, crossOrigin } = childFrames(page);
+  for (const skipped of crossOrigin) {
+    logger.warn(
+      { page: url, frame: skipped },
+      'cross-origin iframe skipped — its elements cannot be modelled',
+    );
+  }
 
   for (const { frame, framePath } of frames) {
     const remaining = (options.maxElements ?? DEFAULT_MAX_ELEMENTS) - elements.length;
@@ -129,20 +137,29 @@ export async function extractPage(page: PwPage, options: ExtractOptions = {}): P
   };
 }
 
-/** Same-origin child frames, flattened one level with their path recorded. */
-function sameOriginChildFrames(page: PwPage): Array<{ frame: Frame; framePath: string[] }> {
-  const out: Array<{ frame: Frame; framePath: string[] }> = [];
+/** Child frames split into reachable (same-origin, flattened one level) and not. */
+function childFrames(page: PwPage): {
+  frames: Array<{ frame: Frame; framePath: string[] }>;
+  crossOrigin: string[];
+} {
+  const frames: Array<{ frame: Frame; framePath: string[] }> = [
+    { frame: page.mainFrame(), framePath: [] },
+  ];
+  const crossOrigin: string[] = [];
   for (const frame of page.frames()) {
     if (frame === page.mainFrame()) continue;
-    // A cross-origin frame yields an opaque url we cannot query; skip it.
     try {
-      if (new URL(frame.url()).origin !== new URL(page.url()).origin) continue;
+      if (new URL(frame.url()).origin !== new URL(page.url()).origin) {
+        crossOrigin.push(frame.name() || frame.url());
+        continue;
+      }
     } catch {
+      crossOrigin.push(frame.name() || frame.url());
       continue;
     }
-    out.push({ frame, framePath: [frame.name() || frame.url()] });
+    frames.push({ frame, framePath: [frame.name() || frame.url()] });
   }
-  return out;
+  return { frames, crossOrigin };
 }
 
 interface FrameExtractOptions {

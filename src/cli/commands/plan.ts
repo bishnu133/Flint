@@ -77,7 +77,7 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
         projectRoot,
         suiteDir: config.suiteDir,
         logger,
-        planHistory: planHistoryCoverage(projectRoot),
+        planHistory: planHistoryCoverage(projectRoot, { excludeFeature: spec.frontmatter.id }),
       }).index
     : undefined;
 

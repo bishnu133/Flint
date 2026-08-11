@@ -138,6 +138,14 @@ describe('planHistoryCoverage', () => {
     expect(planHistoryCoverage(root)).toEqual({});
   });
 
+  it('excludes the feature being re-planned, which must supersede itself', () => {
+    writePlan(planPath(root, 'login'), plan('login', [testCase({ title: 'A' })]));
+    writePlan(planPath(root, 'cart'), plan('cart', [testCase({ title: 'B' })]));
+    const coverage = planHistoryCoverage(root, { excludeFeature: 'login' });
+    // login's own history is gone; cart's still counts.
+    expect(coverage).toEqual({ cart: ['B'] });
+  });
+
   it('merges plans across features', () => {
     writePlan(planPath(root, 'login'), plan('login', [testCase({ title: 'A' })]));
     writePlan(planPath(root, 'cart'), plan('cart', [testCase({ title: 'B' })]));

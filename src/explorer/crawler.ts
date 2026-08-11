@@ -362,6 +362,7 @@ async function visit(page: PwPage, item: QueueItem, ctx: VisitContext): Promise<
 
   const captured = await extractPage(page, {
     i18n: config.explorer.i18n,
+    logger: ctx.logger,
     normalizeRules,
     reachedVia:
       item.depth === 0
