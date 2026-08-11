@@ -555,14 +555,19 @@ Two things were done, neither of which is a proven fix:
   direction — `pickBest` only offers verified-unique candidates to the Emitter,
   so an unstable selector is excluded rather than becoming a flaky test.
 
-**Honesty note:** the confirm-read is justified on its own terms, *not* by a
+**Honesty note:** the confirm-read was justified on its own terms, *not* by a
 reproduction. An attempt to build one failed: a fixture that re-renders after
 load does not flake, because `waitForDomStable` settles before extraction
 begins — which is exactly that wait's job. Producing a genuine flake requires a
 DOM that never settles, and a test built on that would itself be flaky. The
-test file says so in its header rather than implying coverage it lacks. Whether
-this addresses the observed diff is **unknown** until the operator re-runs with
-the detailed differ.
+test file says so in its header rather than implying coverage it lacks.
+
+**RESOLVED against the live app (operator run, 2026-08-11).** Two consecutive
+`flint explore` runs against saucedemo now report `No changes.` — 4 pages,
+55 elements, 55 verified-unique, identical both times. The phantom drift was
+flaky single-read uniqueness verification, and the confirm-read removes it.
+This is evidence from the real app that raised the symptom, not from a
+fixture.
 
 **2. `--validate` reported 96.4%, and the two "broken" selectors are not drift.**
 Both live on `/cart.html`: `button[name="Remove"]` and
