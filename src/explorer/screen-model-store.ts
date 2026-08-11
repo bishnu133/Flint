@@ -5,6 +5,7 @@ import {
   type Element,
   type Page,
   type ScreenModel,
+  type SelectorCandidate,
 } from '../schemas/screen-model.js';
 import { ConfigError } from '../shared/errors.js';
 import { formatZodError } from '../shared/zod-format.js';
@@ -197,8 +198,40 @@ function elementFieldChanges(before: Element, after: Element): string[] {
   compare('tagName', before.tagName, after.tagName);
   compare('states', before.states, after.states);
   compare('framePath', before.framePath, after.framePath);
-  compare('selectorCandidates', before.selectorCandidates, after.selectorCandidates);
+  changed.push(...candidateChanges(before.selectorCandidates, after.selectorCandidates));
   return changed;
+}
+
+/**
+ * Candidate-level detail, not just "selectorCandidates changed".
+ *
+ * After live verification the only field that can vary for a given selector is
+ * `unique` (and the score derived from it), so a bare field name tells a user
+ * nothing about whether their app drifted or the verification was flaky.
+ * Phase 6 answers "which tests will this UI change break?" from exactly this.
+ */
+function candidateChanges(before: SelectorCandidate[], after: SelectorCandidate[]): string[] {
+  const key = (c: SelectorCandidate): string => `[${c.strategy}] ${c.value}`;
+  const beforeByKey = new Map(before.map((c) => [key(c), c]));
+  const afterByKey = new Map(after.map((c) => [key(c), c]));
+
+  const changes: string[] = [];
+  for (const k of [...afterByKey.keys()].filter((k) => !beforeByKey.has(k)).sort()) {
+    changes.push(`+selector ${k}`);
+  }
+  for (const k of [...beforeByKey.keys()].filter((k) => !afterByKey.has(k)).sort()) {
+    changes.push(`-selector ${k}`);
+  }
+  for (const k of [...afterByKey.keys()].filter((k) => beforeByKey.has(k)).sort()) {
+    const a = beforeByKey.get(k)!;
+    const b = afterByKey.get(k)!;
+    if (a.unique !== b.unique) {
+      changes.push(`${k} unique ${a.unique}→${b.unique}`);
+    } else if (a.score !== b.score || a.verified !== b.verified) {
+      changes.push(`${k} score ${a.score}→${b.score}`);
+    }
+  }
+  return changes;
 }
 
 function indexBy<T>(items: T[], key: (item: T) => string): Map<string, T> {

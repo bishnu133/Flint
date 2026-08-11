@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SelectorCandidate } from '../schemas/screen-model.js';
 import {
   canonicalize,
   writeModel,
@@ -208,7 +209,10 @@ describe('diffModels', () => {
       ],
     });
     const d = diffModels(model([page('home', [before])]), model([page('home', [after])]));
-    expect(d.changedPages[0]?.changedElements[0]?.changed).toContain('selectorCandidates');
+    // Named down to the selector, so Phase 6 can say which selector moved
+    // rather than only that something under this element did.
+    const changed = d.changedPages[0]?.changedElements[0]?.changed ?? [];
+    expect(changed.some((c) => c.startsWith('+selector [css] div.new'))).toBe(true);
   });
 
   it('ignores boundingBox jitter, which is not drift', () => {
@@ -248,5 +252,67 @@ describe('formatDiff', () => {
     expect(out).toMatch(/~ page\s+home/);
     expect(out).toMatch(/\+ element b/);
     expect(out).toMatch(/~ element a \[name\]/);
+  });
+});
+
+describe('candidate-level diff detail', () => {
+  const candidate = (
+    strategy: 'testid' | 'role',
+    value: string,
+    unique: boolean,
+  ): SelectorCandidate => ({ strategy, value, score: unique ? 100 : 30, unique, verified: true });
+
+  const modelWith = (candidates: SelectorCandidate[]): ScreenModel => ({
+    version: '1',
+    baseUrl: 'https://example.com',
+    capturedAt: '2026-01-01T00:00:00.000Z',
+    pages: [
+      {
+        id: 'page-1',
+        url: 'https://example.com/',
+        urlPattern: '/',
+        title: 'Home',
+        reachedVia: { kind: 'link', href: '/' },
+        navTargets: [],
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        elements: [
+          {
+            id: 'el-1',
+            role: 'button',
+            name: 'Go',
+            tagName: 'button',
+            boundingBox: { x: 0, y: 0, width: 1, height: 1 },
+            states: { visible: true, enabled: true },
+            selectorCandidates: candidates,
+          },
+        ],
+      },
+    ],
+  });
+
+  it('names the selector and the direction when uniqueness flips', () => {
+    const diff = diffModels(
+      modelWith([candidate('role', 'button[name="Go"]', true)]),
+      modelWith([candidate('role', 'button[name="Go"]', false)]),
+    );
+    expect(diff.changedPages[0]!.changedElements[0]!.changed).toEqual([
+      '[role] button[name="Go"] unique true→false',
+    ]);
+  });
+
+  it('reports an added and a removed candidate distinctly', () => {
+    const diff = diffModels(
+      modelWith([candidate('role', 'button[name="Go"]', true)]),
+      modelWith([candidate('testid', 'go', true)]),
+    );
+    expect(diff.changedPages[0]!.changedElements[0]!.changed).toEqual([
+      '+selector [testid] go',
+      '-selector [role] button[name="Go"]',
+    ]);
+  });
+
+  it('says nothing when candidates are identical', () => {
+    const same = [candidate('testid', 'go', true)];
+    expect(diffModels(modelWith(same), modelWith(same)).unchanged).toBe(true);
   });
 });
