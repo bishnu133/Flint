@@ -797,6 +797,20 @@ plan is explainable rather than mysterious.
 
 No other Phase 0, 1 or 2 file was modified.
 
+### Post-Phase-3 fix from the operator's first run
+
+**A `pages: ['/']` hint selected every page.** `matchesHint` fell through to a
+substring test, and every path contains a slash — so the natural hint for an
+app whose login screen is at the root (saucedemo's is) silently selected the
+whole model while still reporting `pages-hint`. Doubly bad: the
+"no page matched" disclosure never fired either, because the pages *looked*
+explicitly hinted.
+
+`/` now means the root and nothing else: exact match on the normalized path
+first, and the substring branch is skipped for a bare `/`. A hint of `/cart`
+still matches `/cart.html`. Tests in `page-matcher.test.ts`, which the module
+previously lacked entirely.
+
 ### Open item
 
 `flint plan` makes a real LLM call, so it needs `ANTHROPIC_API_KEY` and — on a

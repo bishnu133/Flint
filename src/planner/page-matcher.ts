@@ -132,15 +132,33 @@ export function matchPages(
   );
 }
 
-/** A hint matches a page by urlPattern, full URL, or title, case-insensitively. */
+/**
+ * Does a `pages:` hint select this page?
+ *
+ * Exact match on the normalized path first, then substring against path, URL
+ * or title. The substring branch is skipped for a bare `/` — every path
+ * contains a slash, so `pages: ['/']` would select the entire model while
+ * still reporting `pages-hint`, making a useless hint indistinguishable from a
+ * precise one. `/` is a legitimate hint for a root-page app (saucedemo's login
+ * screen is at `/`), so it must mean *only* the root.
+ */
 function matchesHint(page: Page, hint: string): boolean {
   if (hint === '') return false;
+  const wanted = normalizeForHint(hint);
+  const pattern = normalizeForHint(page.urlPattern.toLowerCase());
+  if (pattern === wanted) return true;
+  if (wanted === '/') return false;
   return (
-    page.urlPattern.toLowerCase() === hint ||
-    page.urlPattern.toLowerCase().includes(hint) ||
-    page.url.toLowerCase().includes(hint) ||
-    page.title.toLowerCase().includes(hint)
+    pattern.includes(wanted) ||
+    page.url.toLowerCase().includes(wanted) ||
+    page.title.toLowerCase().includes(wanted)
   );
+}
+
+/** Trailing slashes are not identity; the root stays `/`. */
+function normalizeForHint(value: string): string {
+  const trimmed = value.replace(/\/+$/, '');
+  return trimmed === '' ? '/' : trimmed;
 }
 
 /** Content words from the spec's title, body and acceptance criteria. */
