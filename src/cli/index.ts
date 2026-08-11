@@ -8,6 +8,7 @@ import { registerInit } from './commands/init.js';
 import { registerHelloLlm } from './commands/hello-llm.js';
 import { registerExplore } from './commands/explore.js';
 import { registerIndex } from './commands/index-cmd.js';
+import { registerPlan } from './commands/plan.js';
 import { registerStubs } from './commands/stubs.js';
 
 function version(): string {
@@ -35,6 +36,7 @@ export function buildProgram(): Command {
   // Implemented in Phase 1.
   registerExplore(program);
   registerIndex(program);
+  registerPlan(program);
 
   // Pipeline commands (stubbed until their phase).
   registerStubs(program);

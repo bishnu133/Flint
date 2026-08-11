@@ -709,3 +709,98 @@ file as hand-edited.
   is now implemented. This is the intended lifecycle of that file.
 
 No other Phase 0 or Phase 1 file was modified.
+
+---
+
+## Phase 3 — Planner (Stage A)
+
+Adds `src/planner/`, one prompt template, and one CLI command. Phase 1 and 2
+files are untouched except the two designated wiring points.
+
+### Exit criteria — evidence
+
+Measured by `src/planner/golden-specs.test.ts`, which runs five feature specs
+against a fixed Screen Model with the LLM replaced by a deterministic responder.
+
+| Criterion (master plan Part C, Phase 3)                | Required | Result                    |
+| ------------------------------------------------------ | -------- | ------------------------- |
+| Plans reference only real Element ids                    | enforced | validator refuses the plan |
+| Every acceptance criterion covered                       | 5 specs  | checklist asserted per spec |
+| Correctly skips cases a pre-seeded suite covers           | yes      | forced `skipped-duplicate` |
+| `pnpm test`                                              | green    | **469 tests, 36 files**   |
+| `pnpm build` / `pnpm lint`                               | clean    | clean                     |
+
+The responder is not a canned blob: it parses the element ids out of the prompt
+it receives and plans against them. A bug that stopped ids reaching the prompt
+would surface as an empty plan rather than passing silently — which is what
+makes "references only real ids" a real assertion rather than a tautology.
+
+### Design decisions
+
+**The LLM is bounded on both sides.** Going in, the context lists only elements
+with a verified-unique selector, because Phase 4 could not emit anything else —
+offering the rest invites plans that cannot be generated. Coming out, the plan
+is zod-validated, every `elementRef` is re-checked against the ids actually
+shown, and duplicate detection is re-run deterministically rather than trusted.
+A plan that references an invented element is **refused**, not repaired: handing
+a human invented tests wearing the tool's authority is the worst available
+outcome.
+
+**`blocked` cases are exempt from referential checking.** A blocked case exists
+precisely because the UI is missing, so its steps may name what the spec asked
+for. That is the case doing its job.
+
+**Provenance becomes a precondition line in the prompt.** An element behind a
+menu renders as `precondition: only exists after clicking element <id>`, and a
+flow-captured one names its flow. This is the first consumer of the schema field
+approved on 2026-08-11, and the reason it was worth adding: without it the
+planner would reference a cart's Remove button with no way to reach it.
+
+**The matcher discloses when it fell back.** With no `pages:` hint and no
+keyword overlap, every page is offered as a last resort. Rendering that silently
+makes a fallback list indistinguishable from a curated one, so the context now
+says so explicitly and instructs the planner to emit `blocked` rather than
+substitute something similar. Found while writing the `reporting` golden spec.
+
+**Truncation order is the master plan's, literally**: spec > pages > index >
+exemplars. The spec is never dropped and at least one page always survives;
+what was dropped is reported in the CLI output and the rendered plan, so a thin
+plan is explainable rather than mysterious.
+
+### Deviations
+
+1. **`yaml` added as a dependency.** Feature-spec frontmatter carries arrays
+   (`pages`, `acceptanceCriteria`, `negativeCases`, `dataNeeds`), which the
+   two-line `key: value` reader used for flow scripts cannot handle. The kb
+   schema's own docstring calls the frontmatter YAML. Hand-rolling a YAML subset
+   for a file humans edit by hand would fail in ways they could not predict.
+2. **Title similarity uses stop words and crude stemming.** Plain Jaccard scored
+   "User can sign in" against "User signs in" at 0.4 — a human calls those the
+   same test, and the whole point of duplicate detection is to match human
+   judgement. Stop-word removal plus trailing-`s` stripping brings it to 1.0
+   while keeping "User can sign in" / "User can sign out" apart at 0.67.
+   Negation tokens survive both, so a negative case is never collapsed into its
+   positive twin — the expensive direction of this error.
+3. **Coverage-map test identity is the test title** (recorded in Phase 2 and now
+   depended on). `planHistoryCoverage` counts only `new` and `update-existing`
+   cases: a duplicate is already represented by what it duplicates, and a
+   blocked case has no test at all.
+4. **`temperature: 0` for planning**, though the master plan only mandates it
+   for code emission. A stable plan makes the whole pipeline reproducible, and
+   there is no upside to a planner that answers differently each run.
+
+### Frozen-file touches
+
+- `src/cli/index.ts` — registration line. Designated wiring point.
+- `src/cli/commands/stubs.ts` — `plan` removed from the stub list now that it is
+  implemented. The intended lifecycle of that file.
+
+No other Phase 0, 1 or 2 file was modified.
+
+### Open item
+
+`flint plan` makes a real LLM call, so it needs `ANTHROPIC_API_KEY` and — on a
+TLS-inspecting corporate proxy — `NODE_OPTIONS=--use-system-ca`. Verified as far
+as the call boundary here (correct actionable error, exit code 1, "did you mean"
+list for an unknown feature id); the end-to-end run against a live model is the
+operator's to do.
