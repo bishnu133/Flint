@@ -533,6 +533,66 @@ Post-fix gates: 346 tests, 28 files; build, lint, format clean.
 
 ---
 
+### Open questions from the saucedemo run (NOT resolved)
+
+Two findings from the operator's live run that are recorded rather than fixed.
+
+**1. `--diff` is not clean against saucedemo, and I could not reproduce it.**
+Two runs of identical code, minutes apart, reported every element on three
+pages as changed under `selectorCandidates`. After live verification the only
+field that can vary is `unique` (and the score derived from it), so this means
+`locator.count()` returned different numbers between runs.
+
+Two things were done, neither of which is a proven fix:
+
+- The differ now names the individual candidate and direction
+  (`[role] button[name="Go"] unique true→false`) instead of the bare field
+  name. On a real app "selectorCandidates changed" cannot distinguish app drift
+  from flaky verification; this output can. Phase 6 needs the same detail to
+  answer "which tests will this UI change break?".
+- Verification now takes **two readings** (parallel, ~120 ms apart) and requires
+  them to agree; disagreement resolves to non-unique. That is the safe
+  direction — `pickBest` only offers verified-unique candidates to the Emitter,
+  so an unstable selector is excluded rather than becoming a flaky test.
+
+**Honesty note:** the confirm-read is justified on its own terms, *not* by a
+reproduction. An attempt to build one failed: a fixture that re-renders after
+load does not flake, because `waitForDomStable` settles before extraction
+begins — which is exactly that wait's job. Producing a genuine flake requires a
+DOM that never settles, and a test built on that would itself be flaky. The
+test file says so in its header rather than implying coverage it lacks. Whether
+this addresses the observed diff is **unknown** until the operator re-runs with
+the detailed differ.
+
+**2. `--validate` reported 96.4%, and the two "broken" selectors are not drift.**
+Both live on `/cart.html`: `button[name="Remove"]` and
+`link[name="Sauce Labs Backpack"]`. Both were captured by the `populated-cart`
+flow, which adds an item first. Validation navigates to an *empty* cart, where
+neither exists. The model asserts elements that only exist in one state.
+
+This is the third symptom of one root cause, already recorded above as
+deviation 1 (interaction-pass provenance) and deviation 2 (flow/crawl page
+merging): **the Screen Model records what an element is, never how it came to
+exist.** One optional additive field would resolve all three:
+
+```ts
+Element.provenance?:
+  | { kind: 'page' }                                  // present on load
+  | { kind: 'revealed'; openerElementId: string }     // needs a click first
+  | { kind: 'flow'; flowId: string; step: number }    // needs a flow first
+```
+
+With it: the validator skips state-dependent elements instead of reporting
+false drift, and Phase 4 emits the precondition instead of a test that fails on
+first run. Without it, Phase 4 must either ignore flow- and interaction-derived
+elements entirely (throwing away real coverage — the operator's cart flow
+becomes decorative) or emit tests that fail.
+
+**Status: awaiting human approval per CLAUDE.md rule 4.** Asked and not yet
+answered; per rule 7 the simpler option was taken (no schema change) and the
+question recorded here. Nothing downstream has been built on the assumption
+that it will be approved.
+
 ## Phase 2 — Suite Indexer
 
 Phase 1 files are frozen from here. Phase 2 adds `src/indexer/` and one CLI

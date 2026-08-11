@@ -58,6 +58,8 @@ export interface ExtractOptions {
 }
 
 const DEFAULT_MAX_ELEMENTS = 300;
+/** Gap between the two uniqueness readings. Long enough to catch a re-render. */
+const CONFIRM_DELAY_MS = 120;
 
 /** Extract a complete Screen Model page from a live Playwright page. */
 export async function extractPage(page: PwPage, options: ExtractOptions = {}): Promise<Page> {
@@ -337,13 +339,33 @@ async function verifyCandidates(
   candidates: SelectorCandidate[],
   opts: FrameExtractOptions,
 ): Promise<SelectorCandidate[]> {
-  const out: SelectorCandidate[] = [];
-  for (const candidate of candidates) {
-    const count = await countFor(frame, candidate).catch(() => -1);
-    // -1 means the selector was not even resolvable; treat as non-unique.
-    out.push(applyVerification(candidate, count === 1, opts.rankOptions));
-  }
-  return out;
+  // Two readings, not one. A single `count()` is a snapshot of a moving DOM:
+  // a React re-render between the crawl and a later run flips `unique`, and
+  // since `unique` is the only field verification can change, that shows up as
+  // phantom drift in `explore --diff` on an app nobody touched.
+  //
+  // Disagreement resolves to *not* unique, which is the safe direction —
+  // `pickBest` only offers verified-unique candidates to the Emitter, so an
+  // unstable selector is excluded rather than turned into a flaky test.
+  const first = await countAll(frame, candidates);
+  await sleep(CONFIRM_DELAY_MS);
+  const second = await countAll(frame, candidates);
+
+  return candidates.map((candidate, i) =>
+    applyVerification(candidate, first[i] === 1 && second[i] === 1, opts.rankOptions),
+  );
+}
+
+/** Counts run in parallel — two confirmed passes cost less than one serial one. */
+async function countAll(frame: Frame, candidates: SelectorCandidate[]): Promise<number[]> {
+  return Promise.all(
+    // -1 means the selector was not even resolvable; treated as non-unique.
+    candidates.map((candidate) => countFor(frame, candidate).catch(() => -1)),
+  );
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** Translate a stored candidate into the matching Playwright locator. */
