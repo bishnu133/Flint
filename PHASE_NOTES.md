@@ -1389,3 +1389,61 @@ keep passing.
 in `FlintConfigSchema` lets a user say their app uses `data-test`, so fix (2) has
 no way to be switched on from a project. CLAUDE.md rule 4 puts schema changes
 behind explicit human approval, so this is recorded here rather than done.
+
+## Phase 4 — exit criteria verified (2026-08-12)
+
+The operator's run, against live saucedemo with no hand-editing:
+
+```
+✓ User visiting the site root sees the sign-in form            (710ms)
+✓ User with valid credentials lands on the products page       (807ms)
+✓ User with an invalid password sees an error that names …     (842ms)
+✓ Locked-out user is refused with a lockout message            (814ms)
+
+  4 passed (1.8s)
+```
+
+`degraded: 0`. Nothing blocked, nothing skipped, nothing invented.
+
+| Master plan exit criterion                                  | Result                                                                             |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Generated suite compiles + lints clean 100%                 | "Typechecked clean before writing" on every run; the gate rejects real type errors |
+| ≥70% first-run pass rate on demo apps                       | **100% (4/4)**                                                                     |
+| Regenerating a feature is byte-identical                    | Writer reports `same` for untouched files; asserted in unit tests                  |
+| No duplicate page objects across features touching one page | `.flint/page-objects.json` merges per page id; asserted in unit tests              |
+
+Merged to `main` at `b1cfe26` — 28 commits, clean fast-forward from `b01520b`.
+
+### What it took, and what that says
+
+Four passing tests took eleven fixes found by running the thing. The pattern
+worth carrying into Phase 5:
+
+- **Four separate bugs were one mistake.** Flint reading its own output as
+  somebody else's input: a plan deduping against itself, a page object dropping
+  another feature's locators, a re-plan skipping its own tests, and tags doubling
+  in titles. Any value Flint writes and later reads needs that question asked.
+  In Phase 5 the candidate is a repair loop treating its own last attempt as the
+  user's code.
+- **The gate had never run.** It reported "dependencies not installed" for weeks
+  because its scratch copy sat where `node_modules` could not resolve. The `ran`
+  flag — added so a skip could not be mistaken for a pass — is the only reason
+  it was findable. Phase 5's verifier needs the same distinction between "the
+  check says no" and "the check did not happen".
+- **The planner's questions were bug reports.** "An unnamed textbox … is this
+  the Login button?" found the input-role mapping. "An unlabelled button that
+  appears to be the error dismiss control" found the element net missing every
+  assertion target. Grounding produced diagnostics, not just refusals.
+- **Two tests were deleted silently before anything caught it.** Both times the
+  output looked like success. The CLI now refuses to be quiet: it warns when no
+  test will run and exits non-zero.
+
+### Carried into Phase 5
+
+| Item                                           | Note                                                                                                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Fixture emitter                                | Auth storageState fixture and data-factory stubs. Not built; prerequisites become comments on a skipped test.                            |
+| eslint gate                                    | Plan asks for `tsc` **and** eslint; only the typecheck runs. Needs the user's own config.                                                |
+| Extend a pre-existing hand-written page object | Reuse works across Flint-generated ones only.                                                                                            |
+| `explorer.testIdAttribute`                     | The capture net honours the attribute now, but no config key exists to set it. **Schema change — awaiting approval** (CLAUDE.md rule 4). |
+| iframe-hosted elements                         | Degrade to `test.fixme`; the frame's own selector was never verified.                                                                    |
