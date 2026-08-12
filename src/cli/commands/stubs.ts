@@ -15,11 +15,6 @@ interface StubSpec {
 
 const STUBS: StubSpec[] = [
   {
-    name: 'verify',
-    phase: 5,
-    description: 'Run generated tests, classify failures, and repair',
-  },
-  {
     name: 'run',
     phase: 5,
     description: 'Run the generated Playwright suite',

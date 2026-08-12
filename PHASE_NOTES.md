@@ -1447,3 +1447,73 @@ worth carrying into Phase 5:
 | Extend a pre-existing hand-written page object | Reuse works across Flint-generated ones only.                                                                                            |
 | `explorer.testIdAttribute`                     | The capture net honours the attribute now, but no config key exists to set it. **Schema change — awaiting approval** (CLAUDE.md rule 4). |
 | iframe-hosted elements                         | Degrade to `test.fixme`; the frame's own selector was never verified.                                                                    |
+
+## Phase 5 — Verifier (in progress)
+
+### Built so far
+
+`classifier.ts`, `playwright-report.ts`, `health.ts`, `runner.ts`, `report.ts`
+and `flint verify`. Everything except the repair loop, which is next.
+
+The design follows one rule taken directly from Phase 4's most expensive bug:
+**a check that did not happen must never read as a check that passed.** The
+compile gate silently skipped for weeks because a skip looked like a pass, and
+only the `ran` flag made it findable. Three places carry that idea now:
+
+- `runSuite` returns `ran: false` with a reason. An empty test list from a run
+  that never started is not a green suite, and `requireRan` exists so a caller
+  cannot forget.
+- `passRate` returns `undefined` — not 0, not 100 — when nothing ran, and its
+  denominator counts only tests that executed. Including skips would let a
+  suite reach "100%" by running nothing at all.
+- `flint verify` exits non-zero when nothing ran, when the app was unreachable,
+  or when anything failed.
+
+### Two judgements worth recording
+
+**An unhealthy environment reclassifies every failure as `env`.** If the app
+was unreachable before the run, no failure in that run says anything about the
+tests. Leaving them as `selector-not-found` would hand the repair loop a suite
+of correct tests to "fix" against a machine that was simply off — the exit
+criterion says env failures are "never repaired", and this is what enforces it.
+The original error text is preserved under a `[reclassified: …]` prefix so
+nothing is lost.
+
+**Any HTTP answer counts as healthy, including a 500.** A 500 is the
+application failing, which is precisely what a test should catch. Calling it an
+environment failure would suppress a real finding. Only transport failures —
+refused, DNS, TLS, timeout — mean there is nothing to test against.
+
+### Classifier ordering, which is load-bearing
+
+Two orderings are asserted because getting them wrong is silent and expensive:
+
+- **env before navigation.** `net::ERR_CONNECTION_REFUSED` arrives _as_ a
+  `page.goto` failure while meaning the server is down. Classified as
+  navigation, it would enter the repair loop.
+- **selector-not-found before timeout.** Both patterns appear in the same
+  message (`Timeout 30000ms exceeded … waiting for locator(…)`). Called a
+  timeout, it would skip the free deterministic retry with the next verified
+  candidate.
+
+Every pattern in the table is a shape Playwright actually emits. A classifier
+tested against invented error text looks thorough and matches nothing, which
+would route every real failure to `unknown` — where, by policy, repair refuses
+to act.
+
+### Verified end to end
+
+`flint verify` against the Phase 4 suite in this sandbox: the run happened, the
+JSON was parsed, the missing browser binary was classified `env` rather than
+blamed on the test, the report was written to `.flint/reports/<runId>.json`, and
+the command exited 1. Full chain — spawn, parse, classify, assemble, write —
+exercised against real Playwright output rather than a fixture.
+
+### Still to build
+
+The repair loop: deterministic selector retry before any LLM call, max 2
+iterations LOCKED, per-test wall-clock timeout, fixme fallback carrying the
+repair history, and `--repair` on the CLI. The recurring bug to watch for there
+is the one that appeared four times in Phase 4 — Flint reading its own previous
+output as somebody else's input. Here it would be the loop treating its own last
+patch as the user's code.
