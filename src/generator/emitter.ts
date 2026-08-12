@@ -89,6 +89,26 @@ export interface EmitResult {
   pageObjects: string[];
 }
 
+/** Marks a test that is complete but waiting on setup. See the TestPlan schema. */
+export const NEEDS_SETUP_TAG = '@needs-setup';
+
+/**
+ * Compare two URLs as the browser would.
+ *
+ * The crawler records what the browser reported (`https://app.example.com`,
+ * no path); a plan's `goto` usually carries the canonical form
+ * (`https://app.example.com/`). They are the same page, and an exact string
+ * compare would emit a bare `page.goto(...)` instead of the page object's own
+ * `goto()` — defeating the point of the page object owning its URL.
+ */
+function canonicalUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url; // not absolute; compare as given
+  }
+}
+
 /** An element resolved out of the Screen Model, with the page it lives on. */
 interface ResolvedElement {
   element: Element;
@@ -386,7 +406,7 @@ function buildPageObjects(
       spec: {
         className,
         pageId: entry.page.id,
-        url: entry.page.url,
+        url: canonicalUrl(entry.page.url),
         urlPattern: entry.page.urlPattern,
         locators,
         methods,
@@ -433,7 +453,7 @@ function buildTest(
     const resolved = step.elementRef === undefined ? undefined : byElementId.get(step.elementRef);
     let pageObject = resolved === undefined ? undefined : pageObjects.get(resolved.page.id);
     if (step.action === 'goto' && step.value !== undefined) {
-      pageObject = byUrl.get(step.value);
+      pageObject = byUrl.get(canonicalUrl(step.value));
     }
     if (pageObject !== undefined) used.set(pageObject.spec.className, pageObject);
 
@@ -453,7 +473,10 @@ function buildTest(
   return {
     caseId: testCase.id,
     title: testCase.title,
-    tags: testCase.tags,
+    // `@needs-setup` is required by the TestPlan schema's emitter rule, and it
+    // is the only thing that makes a skipped test findable: `--grep-invert
+    // @needs-setup` is how a CI run excludes tests waiting on fixtures.
+    tags: mode.kind === 'skip' ? [...testCase.tags, NEEDS_SETUP_TAG] : testCase.tags,
     mode,
     pageObjects: [...used.values()]
       .sort((a, b) => a.spec.className.localeCompare(b.spec.className))
@@ -526,7 +549,7 @@ function buildStatement(
 ): EmittedStatement | undefined {
   if (step.action === 'goto') {
     const url = step.value ?? '';
-    return pageObject !== undefined && pageObject.spec.url === url
+    return pageObject !== undefined && pageObject.spec.url === canonicalUrl(url)
       ? { kind: 'goto', pageVariable: pageObject.variable, url }
       : { kind: 'goto', url };
   }

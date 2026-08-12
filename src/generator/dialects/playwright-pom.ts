@@ -179,12 +179,15 @@ function renderTest(testCase: EmittedTest): string[] {
     // the suite so whoever opens the file sees what exploration never saw.
     lines.push(`test.fixme(${title}, async () => {`);
     lines.push(`${INDENT}// ${testCase.mode.reason}`);
+    // The plan's steps are real work against real element ids, and the case is
+    // blocked on one missing thing. Dropping them would make whoever unblocks
+    // it start over, so they are preserved as commented-out code.
+    lines.push(...blockedSteps(testCase).map((line) => `${INDENT}${line}`));
     lines.push('});');
     return lines;
   }
 
   const opener = testCase.mode.kind === 'skip' ? 'test.skip' : 'test';
-  if (testCase.mode.kind === 'skip') lines.push(`// ${testCase.mode.reason}`);
   lines.push(`${opener}(${title}, async ({ page }) => {`);
 
   for (const pageObject of testCase.pageObjects) {
@@ -196,6 +199,28 @@ function renderTest(testCase: EmittedTest): string[] {
     lines.push(...renderStatement(statement).map((line) => `${INDENT}${line}`));
   }
   lines.push('});');
+  return lines;
+}
+
+/**
+ * The steps the plan specified, as commented-out code.
+ *
+ * Rendered exactly as the live version would be, so unblocking the case is
+ * uncommenting rather than rewriting.
+ */
+function blockedSteps(testCase: EmittedTest): string[] {
+  if (testCase.statements.length === 0) return [];
+  const lines = [
+    '//',
+    '// Steps the plan specified, once the blocker is resolved',
+    '// (add `{ page }` to the test arguments to use them):',
+  ];
+  for (const pageObject of testCase.pageObjects) {
+    lines.push(`// const ${pageObject.variable} = new ${pageObject.className}(page);`);
+  }
+  for (const statement of testCase.statements) {
+    for (const rendered of renderStatement(statement)) lines.push(`// ${rendered}`);
+  }
   return lines;
 }
 

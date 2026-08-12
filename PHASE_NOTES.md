@@ -1071,3 +1071,37 @@ Not done, and not claimed:
 | eslint gate                                                                        | The master plan asks for `tsc --noEmit` **and** eslint. Only the typecheck runs. Linting generated code needs the user's own eslint config, which may not exist.       |
 | Extending an existing hand-written page object found in the Suite Index            | Reuse works across Flint-generated page objects. A pre-existing hand-written `LoginPage` is not detected or extended — Flint writes its own class beside it.           |
 | ≥70% first-run pass rate on a demo app                                             | Requires a live `npx playwright test` run against saucedemo, which this environment cannot reach. Operator-verifiable only.                                            |
+
+### Emitter fixes from the first live `flint generate` (operator log, 2026-08-12)
+
+The run itself was clean — explore captured 4 pages / 55 elements with 55/55
+verified selectors, the plan came back with the Login control correctly typed as
+a button (the input-role fix landing), `generatedAt` read the real time, and
+`generate --dry-run` and `generate` agreed. Reproducing the emitter's exact
+input found four defects in the emitted code.
+
+1. **A blocked case silently discarded its steps.** The plan gave
+   `invalid-password-shows-named-error-message` four steps against real,
+   verified element ids; it is blocked on one missing error element. The emitter
+   wrote `test.fixme()` containing only the reason, so whoever unblocks it would
+   start from scratch. The steps are now preserved as commented-out code,
+   rendered exactly as the live version would be — unblocking is uncommenting.
+
+2. **`@needs-setup` was missing.** The LOCKED TestPlan schema's emitter rule
+   says a case with prerequisites becomes `test.skip()` "with a `@needs-setup`
+   tag". It was not implemented, and the tag is the only handle on a test that
+   is correct but waiting on a fixture — without it there is no way to run
+   "everything that should pass today" (`--grep-invert @needs-setup`).
+
+3. **`page.goto()` where `pageObject.goto()` belonged.** The crawler records the
+   URL the browser reported (`https://www.saucedemo.com`, no trailing slash);
+   the plan carries the canonical form (`…/`). The exact string compare missed,
+   so the test repeated a URL literal the page object already owned. Both sides
+   are now compared as `new URL(...).href`.
+
+4. **A duplicated comment.** Each prerequisite was rendered once as a note and
+   again as the skip reason.
+
+None of these would have failed the compile gate — they are all correct
+TypeScript. That is the argument for asserting emitted text directly in the
+unit tests rather than settling for "it compiled".

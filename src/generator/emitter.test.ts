@@ -223,6 +223,38 @@ describe('emitFeature — specs', () => {
     expect(source).not.toContain(`await page.goto('https://shop.example.com/login');`);
   });
 
+  it('matches the page object even when the goto URL differs only in canonical form', () => {
+    // The crawler records what the browser reported (no trailing slash); a plan
+    // carries the canonical form. Same page — an exact string compare emitted a
+    // bare page.goto and defeated the point of the page object owning its URL.
+    const model: ScreenModel = {
+      ...MODEL,
+      pages: [
+        {
+          ...LOGIN_PAGE,
+          url: 'https://shop.example.com',
+          urlPattern: '/',
+        },
+      ],
+    };
+    const source = fileNamed(
+      emit(
+        [
+          testCase({
+            steps: [
+              { action: 'goto', value: 'https://shop.example.com/' },
+              { action: 'click', elementRef: 'el-submit' },
+            ],
+          }),
+        ],
+        model,
+      ),
+      'tests/login.spec.ts',
+    );
+    expect(source).toContain('await homePage.goto();');
+    expect(source).not.toContain('await page.goto(');
+  });
+
   it('falls back to a bare page.goto for a URL no page object owns', () => {
     const source = fileNamed(
       emit([testCase({ steps: [{ action: 'goto', value: 'https://shop.example.com/other' }] })]),
@@ -359,6 +391,50 @@ describe('emitFeature — degraded cases', () => {
     expect(source).toContain('no verified-unique selector for el-submit');
     // …and nothing was emitted that pretends to address it.
     expect(source).not.toContain('clickLoginButton');
+  });
+
+  it('tags a skipped test @needs-setup, so CI can exclude it by grep', () => {
+    // Required by the TestPlan schema's emitter rule. Without it there is no
+    // way to run "everything that should pass today" — the tag is the only
+    // handle on a test that is correct but waiting on a fixture.
+    const source = fileNamed(
+      emit([testCase({ prerequisites: [{ kind: 'data', description: 'a seeded user' }] })]),
+      'tests/login.spec.ts',
+    );
+    expect(source).toMatch(/test\.skip\('.*@needs-setup'/);
+  });
+
+  it('does not tag a live test @needs-setup', () => {
+    expect(fileNamed(emit([testCase()]), 'tests/login.spec.ts')).not.toContain('@needs-setup');
+  });
+
+  it('keeps a blocked case’s steps as commented-out code', () => {
+    // The steps are real work against real element ids and the case is blocked
+    // on one missing thing. Dropping them makes whoever unblocks it start over.
+    const source = fileNamed(
+      emit([
+        testCase({
+          status: 'blocked',
+          blockedReason: 'no error banner was captured',
+          steps: [
+            { action: 'fill', elementRef: 'el-user', value: 'standard_user' },
+            { action: 'click', elementRef: 'el-submit' },
+          ],
+        }),
+      ]),
+      'tests/login.spec.ts',
+    );
+    expect(source).toContain('// Steps the plan specified');
+    expect(source).toContain(`// await loginPage.fillUsernameInput('standard_user');`);
+    expect(source).toContain('// await loginPage.clickLoginButton();');
+  });
+
+  it('does not add a steps comment to a blocked case that has none', () => {
+    const source = fileNamed(
+      emit([testCase({ status: 'blocked', blockedReason: 'nothing to do', steps: [] })]),
+      'tests/login.spec.ts',
+    );
+    expect(source).not.toContain('Steps the plan specified');
   });
 
   it('emits the complete test but skipped when the case needs setup', () => {
