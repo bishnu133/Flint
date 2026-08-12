@@ -494,6 +494,19 @@ describe('emitFeature — degraded cases', () => {
     expect(result.degraded[0]?.mode).toBe('skip');
   });
 
+  it('reports every degraded case, so a caller can tell nothing will run', () => {
+    // A suite where every test is skipped looks like success — files written,
+    // typecheck clean — while proving nothing. The CLI turns this into a
+    // warning and a non-zero exit, which needs the counts to line up.
+    const result = emit([
+      testCase({ id: 'a', prerequisites: [{ kind: 'config', description: 'base URL is set' }] }),
+      testCase({ id: 'b', status: 'blocked', blockedReason: 'no error element' }),
+    ]);
+    expect(result.degraded).toHaveLength(2);
+    expect(result.skippedDuplicates).toHaveLength(0);
+    expect(result.degraded.map((d) => d.mode).sort()).toEqual(['fixme', 'skip']);
+  });
+
   it('refuses to address an element inside an iframe', () => {
     // Uniqueness was verified inside the frame; the selector for the frame
     // itself never was, so emitting one would break the core guarantee.

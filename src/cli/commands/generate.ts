@@ -119,6 +119,7 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
   console.log('');
   console.log(formatWritePlan(decisions, config.suiteDir));
 
+  const emitted = plan.cases.length - result.skippedDuplicates.length;
   if (result.degraded.length > 0) {
     console.log('');
     console.log('Not runnable as generated:');
@@ -126,6 +127,19 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
       console.log(`  ${item.mode === 'fixme' ? '!' : '~'} ${item.title}`);
       console.log(`      ${item.reason}`);
     }
+  }
+
+  // A suite where nothing runs looks like success — green output, files
+  // written, a clean typecheck — while proving nothing at all. Say so.
+  if (emitted > 0 && result.degraded.length === emitted) {
+    const setupOnly = result.degraded.filter((d) => d.mode === 'skip').length;
+    console.log('');
+    console.log(`WARNING: none of the ${emitted} test(s) will run.`);
+    if (setupOnly > 0) {
+      console.log(`  ${setupOnly} are skipped only for setup. If a prerequisite above is already`);
+      console.log('  satisfied, remove it from the plan and re-run `flint generate`.');
+    }
+    process.exitCode = 1;
   }
 
   const gate = runCompileGate({

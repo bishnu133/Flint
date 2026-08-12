@@ -1297,3 +1297,41 @@ The prompt now marks which conflicts hold user settings (`flint.config.ts`,
 `kb/**`), states plainly what overwriting them costs, and points at the "n"
 answer that adds only missing files. The capability is unchanged; the
 consequence is no longer hidden in a list of twelve paths.
+
+### A suite where nothing runs (operator log, 2026-08-12, second run)
+
+With auth restored the pipeline behaved: 4 pages, 55/55 verified selectors, the
+flow replayed, tags appeared exactly once, and the gate printed "Typechecked
+clean before writing". But the run went **from 1 passing test to 0** — all four
+skipped. The regression was in the plan, not the code:
+
+```
+~ User opens the site root and sees the sign-in form
+    needs setup: Base URL points at https://www.saucedemo.com/
+```
+
+The base URL is obviously configured — the crawl used it. The planner attached
+a vacuous prerequisite, the LOCKED ladder turned that into `test.skip()`, and
+the one test that had passed the round before stopped running.
+
+The prompt caused it. It said "Use `prerequisites` for test data, **config
+values**, external services, or manual setup", and a base URL is a config value.
+Prompt v3 now states the _cost_ ("every prerequisite you add makes the test
+SKIP … a prerequisite that is already satisfied silently deletes a working test
+from the run"), gives a test for whether something qualifies (name the action a
+human would take), and lists what never counts — the app being reachable, the
+base URL, anything in `flint.config.ts`, and any credential the crawl already
+signed in with.
+
+The LOCKED ladder itself is unchanged. The rule was never wrong; the input was.
+
+**Deterministic backstop.** Prompts drift, so `flint generate` no longer lets
+this pass quietly: when every emitted test is degraded it prints
+`WARNING: none of the N test(s) will run`, names how many are skipped only for
+setup, and exits non-zero. A suite that proves nothing previously looked exactly
+like success — files written, gate clean, green output.
+
+Also corrected a warning that overstated its case: dropping a locator whose
+element left the Screen Model said "specs using them will stop compiling", but
+in the operator's run nothing referenced it and the typecheck passed. It now
+says any spec _still referencing_ them will fail the gate.

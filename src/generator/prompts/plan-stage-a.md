@@ -1,4 +1,4 @@
-<!-- version: 2 -->
+<!-- version: 3 -->
 
 <!--
 Stage A — turn a feature spec plus a grounded Screen Model into a TestPlan.
@@ -47,8 +47,28 @@ Consult "Existing test suite" before choosing. Do not re-plan what exists.
 
 `status` says what should be *written*. `prerequisites` says what must exist
 before the test can *pass*. They are independent — a case can be `new` and still
-need seeded data. Use `prerequisites` for test data, config values, external
-services, or manual setup. Do not encode those as `blocked`.
+need seeded data. Do not encode setup as `blocked`.
+
+**Every prerequisite you add makes the test SKIP.** A case with one prerequisite
+is written in full and then marked `test.skip()`, so it never runs and proves
+nothing. A prerequisite that is already satisfied therefore silently deletes a
+working test from the run. Add one only when a human genuinely has to go and do
+something first.
+
+The test for it: **name the action someone would take.** "Seed an account that
+has three completed orders" passes. "The base URL is configured" does not —
+nobody would do anything.
+
+Never list these. They are already true, or this plan could not exist:
+
+- the application being deployed, reachable, or served at its base URL
+- the base URL, the browser, the suite, or anything in `flint.config.ts`
+- any credential the exploration already signed in with successfully
+- the Screen Model, the page objects, or Flint itself
+
+If a case needs nothing but an account the crawl already used, it has **no**
+prerequisites. Prefer a runnable test over a cautious one: a test that runs and
+fails tells a human something, and a test that never runs tells them nothing.
 
 # Coverage and honesty
 

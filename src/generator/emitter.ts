@@ -259,7 +259,7 @@ function seedFromRecords(
     if (dropped.length > 0) {
       logger.warn(
         { feature: featureId, pageObject: record.className, elements: dropped.sort() },
-        'emit: dropping locators whose elements are gone from the Screen Model — specs using them will stop compiling',
+        'emit: dropped locators whose elements are no longer in the Screen Model; any spec still referencing them will fail the compile gate',
       );
     }
   }
