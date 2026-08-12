@@ -1,4 +1,4 @@
-<!-- version: 1 -->
+<!-- version: 2 -->
 
 <!--
 Stage A — turn a feature spec plus a grounded Screen Model into a TestPlan.
@@ -74,6 +74,10 @@ Each step is one of `goto`, `click`, `fill`, `select`, `assert`, `custom`.
 # Output
 
 Return **only** a JSON object matching this shape. No prose, no code fence.
+
+`featureId`, `generatedAt` and `screenModelVersion` are required for the shape
+to validate, but Flint overwrites all three with the real values afterwards —
+you have no clock, so do not spend effort on the timestamp.
 
 ```json
 {

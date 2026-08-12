@@ -37,6 +37,46 @@ describe('implicitRole', () => {
   ])('%s => %s', (tag, expected) => {
     expect(implicitRole(tag)).toBe(expected);
   });
+
+  // An <input> is not one role. Mapping them all to textbox made saucedemo's
+  // `<input type="submit" value="Login">` look like an unnamed third text field
+  // and hid the Login button from the planner entirely.
+  it.each([
+    ['submit', 'button'],
+    ['reset', 'button'],
+    ['button', 'button'],
+    ['image', 'button'],
+    ['checkbox', 'checkbox'],
+    ['radio', 'radio'],
+    ['range', 'slider'],
+    ['number', 'spinbutton'],
+    ['search', 'searchbox'],
+    ['text', 'textbox'],
+    ['email', 'textbox'],
+    ['tel', 'textbox'],
+    ['url', 'textbox'],
+    // No ARIA role maps to these; getByRole('textbox') does not match them.
+    ['password', undefined],
+    ['file', undefined],
+    ['color', undefined],
+    ['date', undefined],
+    ['datetime-local', undefined],
+    ['month', undefined],
+    ['week', undefined],
+    ['time', undefined],
+    // An invalid type renders in the Text state per the HTML spec.
+    ['not-a-real-type', 'textbox'],
+  ])('input[type=%s] => %s', (type, expected) => {
+    expect(implicitRole('input', type)).toBe(expected);
+  });
+
+  it('is case- and whitespace-insensitive about the type attribute', () => {
+    expect(implicitRole('input', ' SUBMIT ')).toBe('button');
+  });
+
+  it('ignores the type on tags where it means nothing', () => {
+    expect(implicitRole('button', 'submit')).toBe('button');
+  });
 });
 
 describe('pageId', () => {
@@ -132,6 +172,62 @@ describe('extractPage', () => {
     await setContent('<label for="e">Your email</label><input id="e" placeholder="you@x.com">');
     const el = (await extractPage(page)).elements[0]!;
     expect(el.name).toBe('Your email');
+  });
+
+  it('names a submit input from its value, not from a label', async () => {
+    // Regression: this is the exact shape of saucedemo's Login control. The
+    // planner previously saw "an unnamed 'textbox'" and asked whether the
+    // Login button existed at all.
+    await setContent('<input type="submit" class="submit-button" value="Login">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.role).toBe('button');
+    expect(el.name).toBe('Login');
+    const role = el.selectorCandidates.find((c) => c.strategy === 'role');
+    expect(role?.value).toBe('button[name="Login"]');
+    expect(role?.unique).toBe(true);
+  });
+
+  it('falls back to the browser default name for a bare submit input', async () => {
+    await setContent('<input type="submit">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.name).toBe('Submit');
+    expect(el.selectorCandidates.find((c) => c.strategy === 'role')?.unique).toBe(true);
+  });
+
+  it('names an image input from its alt text', async () => {
+    await setContent('<input type="image" src="data:," alt="Search">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.role).toBe('button');
+    expect(el.name).toBe('Search');
+  });
+
+  it('does not give a password input a textbox role candidate', async () => {
+    // getByRole('textbox') genuinely does not match a password field, so a role
+    // candidate here would be a selector that resolves to nothing.
+    await setContent('<label for="p">Password</label><input id="p" type="password">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.selectorCandidates.some((c) => c.strategy === 'role')).toBe(false);
+    // The label still carries it, so the element stays addressable.
+    expect(el.selectorCandidates[0]?.strategy).toBe('label');
+  });
+
+  it('gives a checkbox the checkbox role, and the selector resolves', async () => {
+    await setContent('<label for="t">Accept terms</label><input id="t" type="checkbox">');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.role).toBe('checkbox');
+    const role = el.selectorCandidates.find((c) => c.strategy === 'role')!;
+    expect(role.value).toBe('checkbox[name="Accept terms"]');
+    expect(role.unique).toBe(true);
+  });
+
+  it('distinguishes a submit input from the text inputs beside it', async () => {
+    await setContent(`
+      <input placeholder="Username">
+      <input type="password" placeholder="Password">
+      <input type="submit" value="Login">
+    `);
+    const roles = (await extractPage(page)).elements.map((e) => e.role);
+    expect(roles).toEqual(['textbox', 'input', 'button']);
   });
 
   it('always produces a css fallback candidate', async () => {

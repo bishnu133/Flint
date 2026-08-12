@@ -306,6 +306,12 @@ async function readFacts(
       };
       return {
         tagName: el.tagName.toLowerCase(),
+        // `type` decides both the role and, for the button-shaped inputs, where
+        // the accessible name comes from. Read the attribute rather than the
+        // IDL property so an invalid value stays visible to the mapper.
+        inputType: el.getAttribute('type')?.trim().toLowerCase() ?? undefined,
+        value: el.getAttribute('value') ?? undefined,
+        alt: el.getAttribute('alt') ?? undefined,
         testId: el.getAttribute(attr) ?? undefined,
         domId: el.getAttribute('id') ?? undefined,
         explicitRole: el.getAttribute('role') ?? undefined,
@@ -320,13 +326,8 @@ async function readFacts(
 
   if (raw === undefined) return undefined;
 
-  const role = raw.explicitRole ?? implicitRole(raw.tagName);
-  // Accessible name: aria-label wins, then the label, then visible text.
-  // ARIA accessible-name precedence: aria-label > <label> > placeholder > text.
-  // placeholder must be in this chain — for a bare `<input placeholder="X">`
-  // the accessible name IS "X", so `getByRole('textbox', {name:'X'})` matches.
-  // Omitting it costs a role candidate (85) and leaves placeholder (65) on top.
-  const name = raw.ariaLabel ?? raw.label ?? raw.placeholder ?? raw.text;
+  const role = raw.explicitRole ?? implicitRole(raw.tagName, raw.inputType);
+  const name = accessibleName(raw);
 
   return {
     tagName: raw.tagName,
@@ -344,8 +345,66 @@ async function readFacts(
   };
 }
 
-/** Minimal implicit-role mapping for the tags we enumerate. */
-export function implicitRole(tagName: string): string | undefined {
+/**
+ * Facts about an input that change how its name is computed.
+ * `<input type=submit value="Login">` is named by its value, not its text.
+ */
+interface NameFacts {
+  tagName: string;
+  inputType?: string;
+  value?: string;
+  alt?: string;
+  ariaLabel?: string;
+  label?: string;
+  placeholder?: string;
+  text?: string;
+}
+
+/** Input types whose accessible name comes from `value`, not from a label. */
+const VALUE_NAMED_INPUTS: ReadonlySet<string> = new Set(['submit', 'reset', 'button']);
+
+/** Browser-supplied default names for the two inputs that have one. */
+const DEFAULT_INPUT_NAMES: Readonly<Record<string, string>> = { submit: 'Submit', reset: 'Reset' };
+
+/**
+ * Accessible name, following the parts of HTML-AAM that change which selector
+ * we can emit.
+ *
+ * For most elements: aria-label > `<label>` > placeholder > visible text.
+ * placeholder must be in that chain — for a bare `<input placeholder="X">` the
+ * accessible name IS "X", so `getByRole('textbox', {name:'X'})` matches;
+ * omitting it costs a role candidate (85) and leaves placeholder (65) on top.
+ *
+ * Button-shaped inputs are the exception: their name comes from `value` (an
+ * `<input type=submit value="Login">` is `button "Login"`, and a `<label>` does
+ * not name it), falling back to the browser default for submit/reset.
+ */
+function accessibleName(facts: NameFacts): string | undefined {
+  const chain: Array<string | undefined> = [facts.ariaLabel];
+  if (facts.tagName === 'input') {
+    const type = facts.inputType ?? 'text';
+    if (VALUE_NAMED_INPUTS.has(type)) {
+      chain.push(facts.value, DEFAULT_INPUT_NAMES[type]);
+    } else if (type === 'image') {
+      chain.push(facts.alt, facts.value);
+    }
+  }
+  chain.push(facts.label, facts.placeholder, facts.text);
+  return chain.find((v) => v !== undefined && v.trim() !== '');
+}
+
+/**
+ * Implicit ARIA role for the tags we enumerate.
+ *
+ * `input` is not one role. Mapping every input to `textbox` made a submit
+ * button look like a third text field to the planner, and produced
+ * `getByRole('textbox')` selectors that match nothing for checkboxes, radios
+ * and password fields. Types with no role mapping (password, file, date,
+ * colour…) return undefined on purpose: `getByRole('textbox')` genuinely does
+ * not match a password input, so a role candidate there would be a selector
+ * that never resolves.
+ */
+export function implicitRole(tagName: string, inputType?: string): string | undefined {
   switch (tagName) {
     case 'a':
       return 'link';
@@ -356,9 +415,47 @@ export function implicitRole(tagName: string): string | undefined {
     case 'textarea':
       return 'textbox';
     case 'input':
-      return 'textbox';
+      return implicitInputRole(inputType);
     default:
       return undefined;
+  }
+}
+
+/** HTML-AAM `input` type -> role. Unlisted types have no role mapping. */
+function implicitInputRole(inputType?: string): string | undefined {
+  switch (inputType?.trim().toLowerCase() ?? 'text') {
+    case 'submit':
+    case 'reset':
+    case 'button':
+    case 'image':
+      return 'button';
+    case 'checkbox':
+      return 'checkbox';
+    case 'radio':
+      return 'radio';
+    case 'range':
+      return 'slider';
+    case 'number':
+      return 'spinbutton';
+    case 'search':
+      return 'searchbox';
+    // No role mapping exists for these — `getByRole('textbox')` does not match
+    // a password or a date picker, so emitting a role candidate would produce a
+    // selector that resolves to nothing.
+    case 'password':
+    case 'file':
+    case 'color':
+    case 'date':
+    case 'datetime-local':
+    case 'month':
+    case 'week':
+    case 'time':
+    case 'hidden':
+      return undefined;
+    default:
+      // text, email, tel, url — plus any invalid type, which the HTML spec
+      // says renders in the Text state.
+      return 'textbox';
   }
 }
 

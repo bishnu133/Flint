@@ -254,6 +254,22 @@ function planningResponder(options: { misbehave?: 'invent-element' | 'bad-json' 
   };
 }
 
+/** A well-behaved plan, but with every run-provenance field wrong. */
+function metadataLyingResponder() {
+  const inner = planningResponder();
+  return (input: { payload: unknown }): { text: string } => {
+    const plan = JSON.parse(inner(input).text) as Record<string, unknown>;
+    return {
+      text: JSON.stringify({
+        ...plan,
+        featureId: 'some-other-feature',
+        generatedAt: '1999-12-31T00:00:00.000Z',
+        screenModelVersion: 'model-from-last-year',
+      }),
+    };
+  };
+}
+
 async function planFor(featureId: string, index?: SuiteIndex, misbehave?: 'invent-element') {
   const spec = readFeatureSpec(root, 'kb', featureId);
   return generatePlan({
@@ -402,6 +418,28 @@ describe('Phase 3 exit criteria — golden feature specs', () => {
       }),
     ).rejects.toThrow(/after two attempts/);
     expect(calls).toBe(2);
+  });
+
+  it('stamps its own generatedAt rather than trusting the model to know the date', async () => {
+    // A model has no clock. A real run on 2026-08-12 came back stamped
+    // 2026-01-13, which would make any later staleness check read fiction.
+    const before = Date.now();
+    const spec = readFeatureSpec(root, 'kb', 'login');
+    const result = await generatePlan({
+      spec,
+      model: MODEL,
+      provider: new FakeProvider({ responder: metadataLyingResponder() }),
+      modelId: 'fake-planner',
+      tokenBudget: 60_000,
+    });
+
+    expect(result.plan.generatedAt).not.toBe('1999-12-31T00:00:00.000Z');
+    const stamped = Date.parse(result.plan.generatedAt);
+    expect(stamped).toBeGreaterThanOrEqual(before);
+    expect(stamped).toBeLessThanOrEqual(Date.now());
+    // The other two are facts about this run too, not the model's to choose.
+    expect(result.plan.featureId).toBe('login');
+    expect(result.plan.screenModelVersion).toBe(MODEL.version);
   });
 
   it('renders a plan whose checklist shows the covered criteria', async () => {

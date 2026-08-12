@@ -120,7 +120,9 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
       continue;
     }
 
-    const check = checkElementRefs(result.data, context.allowedElementIds);
+    const plan = stampProvenance(result.data, spec.frontmatter.id, model.version);
+
+    const check = checkElementRefs(plan, context.allowedElementIds);
     if (!check.ok) {
       lastError = formatReferentialReport(check);
       retried = attempt < MAX_ATTEMPTS;
@@ -138,8 +140,8 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
 
     const deduped =
       options.index === undefined
-        ? { plan: result.data, forced: [] as DuplicateDecision[] }
-        : applyDuplicateDetection(result.data, options.index);
+        ? { plan, forced: [] as DuplicateDecision[] }
+        : applyDuplicateDetection(plan, options.index);
 
     logger.info(
       {
@@ -165,6 +167,26 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
     code: 'PLAN',
     hint: lastError ?? 'The model returned output that did not match the TestPlan schema.',
   });
+}
+
+/**
+ * Overwrite the three plan fields that are facts about the run, not judgements
+ * about the feature.
+ *
+ * A language model has no clock and no view of the run, so `generatedAt` came
+ * back as a plausible-looking invention — a real plan generated on 2026-08-12
+ * was stamped `2026-01-13T00:00:00.000Z`. Anything downstream that reasons
+ * about plan age (staleness against the Screen Model, "was this re-planned
+ * after the crawl") would be reading fiction. The prompt still asks for the
+ * fields so the schema validates on the first attempt; the values are ours.
+ */
+function stampProvenance(plan: TestPlan, featureId: string, screenModelVersion: string): TestPlan {
+  return {
+    ...plan,
+    featureId,
+    screenModelVersion,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 /**

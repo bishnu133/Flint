@@ -387,7 +387,7 @@ interaction pass. New behaviour is controlled by CLI flags instead:
 ### Defect found while preparing the operator test run
 
 **Query-parameterised URLs produced duplicate page ids.** Page identity is the
-normalized *path* (`pageId(urlPattern)`), while the crawl frontier dedupes on
+normalized _path_ (`pageId(urlPattern)`), while the crawl frontier dedupes on
 path **+ query**. So `/item.html?id=1..3` were three frontier entries that each
 became a page — three entries in `model.pages` sharing one id. `diffModels`
 indexes by id, so it silently kept only the last. saucedemo's product pages are
@@ -425,10 +425,10 @@ wrong against a real app the plan explicitly names.
    iframe scenario exists for. The validator now resolves each element in its
    recorded frame (matched by frame name or URL; a missing frame is itself
    drift). Test: `resolves elements inside same-origin iframes in their own
-   frame`.
+frame`.
 
 3. **Credential login failed falsely on SPA logins.** After submitting, the
-   password field was checked *instantly*. An SPA login submits over XHR and
+   password field was checked _instantly_. An SPA login submits over XHR and
    swaps the form out client-side, so the field is still visible at
    `domcontentloaded` — every SPA login was declared failed. Works on
    saucedemo (real navigation), broken on the app class Phase 1 targets. The
@@ -445,29 +445,29 @@ The run proved determinism (`--diff` clean on a live site), flow replay (the
 `populated-cart` flow captured 13 elements on a cart the crawl cannot reach),
 and 330 tests green. It also failed its headline step, for four reasons.
 
-1. **The crawl restarted at `baseUrl` after logging in.** `saucedemo.com/` *is*
+1. **The crawl restarted at `baseUrl` after logging in.** `saucedemo.com/` _is_
    the login page and keeps serving the sign-in form to authenticated visitors.
    So: login succeeded, the auth bootstrap closed its page and threw away the
    URL it had landed on (`/inventory.html`), the crawl restarted at `baseUrl`,
    and the model contained one page — the login screen — under a "session did
    not carry into the crawl" warning. Every component worked; the entry point
    was wrong. `createAuthenticatedContext` now returns `AuthSession { context,
-   landingUrl }`, and the CLI starts the crawl from `landingUrl` when it is
+landingUrl }`, and the CLI starts the crawl from `landingUrl` when it is
    same-origin with `baseUrl` (`--url` still wins). Tests in
    `login-at-root.test.ts` model the saucedemo shape exactly.
 
 2. **`baseUrl` would then have been dropped from the model.** Starting inside
    the app means nothing links back to the sign-in page, and a test generator
    that cannot see the login screen cannot generate a login test. `CrawlOptions.
-   alsoCrawl` seeds extra depth-0 entry points; the CLI passes `baseUrl` when
+alsoCrawl` seeds extra depth-0 entry points; the CLI passes `baseUrl` when
    the entry point was redirected. The entry-page login-wall diagnostic now
-   fires only for the *first* captured page, not for every depth-0 seed.
+   fires only for the _first_ captured page, not for every depth-0 seed.
 
 3. **The app's own sign-in page read as session expiry.** With `alsoCrawl`
    seeding `/`, the depth-0 exemption alone was not enough — any app linking
    its own `/login` would trip the expiry path once authenticated. `knownLoginUrl
-   (config)` exposes the configured login URL and the crawler exempts it by
-   origin+path. A login wall *elsewhere* still means expiry, as before.
+(config)` exposes the configured login URL and the crawler exempts it by
+   origin+path. A login wall _elsewhere_ still means expiry, as before.
 
 4. **A dead SPA URL reported success.** `demo.realworld.build` no longer
    resolves. The crawl captured 0 pages, wrote an empty model over the stored
@@ -511,8 +511,8 @@ considered and rejected. Three separate causes, all real.
    never learned them.
 
    `route-discovery.ts` clicks such a link once, records where the app routed
-   to, restores the page, and hands the URL to the crawler to visit *by
-   navigation*. The safety model is unchanged in substance: the crawler still
+   to, restores the page, and hands the URL to the crawler to visit _by
+   navigation_. The safety model is unchanged in substance: the crawler still
    only `goto`s vetted URLs, and this is the master plan's sanctioned bounded
    -click escape hatch, restricted to link elements (never buttons), visible
    ones only (a closed burger menu is never clicked), and filtered through
@@ -555,7 +555,7 @@ Two things were done, neither of which is a proven fix:
   direction — `pickBest` only offers verified-unique candidates to the Emitter,
   so an unstable selector is excluded rather than becoming a flaky test.
 
-**Honesty note:** the confirm-read was justified on its own terms, *not* by a
+**Honesty note:** the confirm-read was justified on its own terms, _not_ by a
 reproduction. An attempt to build one failed: a fixture that re-renders after
 load does not flake, because `waitForDomStable` settles before extraction
 begins — which is exactly that wait's job. Producing a genuine flake requires a
@@ -572,7 +572,7 @@ fixture.
 **2. `--validate` reported 96.4%, and the two "broken" selectors are not drift.**
 Both live on `/cart.html`: `button[name="Remove"]` and
 `link[name="Sauce Labs Backpack"]`. Both were captured by the `populated-cart`
-flow, which adds an item first. Validation navigates to an *empty* cart, where
+flow, which adds an item first. Validation navigates to an _empty_ cart, where
 neither exists. The model asserts elements that only exist in one state.
 
 This is the third symptom of one root cause, already recorded above as
@@ -636,14 +636,14 @@ list now that it is real).
 
 ### Exit criteria — evidence
 
-| Criterion (master plan Part C, Phase 2)                  | Required | Measured                |
-| -------------------------------------------------------- | -------- | ----------------------- |
-| Index a 50-file suite                                      | < 10 s   | **25 ms**               |
-| Distinguishes generated / hand-written / hand-edited       | correct  | 3-way test, all classes |
-| Empty suite produces a valid empty index                   | valid    | schema-valid, no throw  |
-| No suite dir at all produces a valid empty index           | valid    | schema-valid + a NOTE   |
-| `pnpm test`                                                | green    | **391 tests, 31 files** |
-| `pnpm build` / `pnpm lint`                                 | clean    | clean                   |
+| Criterion (master plan Part C, Phase 2)              | Required | Measured                |
+| ---------------------------------------------------- | -------- | ----------------------- |
+| Index a 50-file suite                                | < 10 s   | **25 ms**               |
+| Distinguishes generated / hand-written / hand-edited | correct  | 3-way test, all classes |
+| Empty suite produces a valid empty index             | valid    | schema-valid, no throw  |
+| No suite dir at all produces a valid empty index     | valid    | schema-valid + a NOTE   |
+| `pnpm test`                                          | green    | **391 tests, 31 files** |
+| `pnpm build` / `pnpm lint`                           | clean    | clean                   |
 
 The 25 ms figure is printed by the test itself (`[exit criteria] indexed 50
 files in 25ms`) rather than asserted from memory. It is three orders of
@@ -673,7 +673,7 @@ Truncated hashes in a marker are compared on the recorded length, so a
 hand-shortened marker is not misread as an edit.
 
 **Whitespace counts as an edit.** Reformatting a generated file marks it
-hand-edited. Regenerating it *would* discard that work, so the conservative
+hand-edited. Regenerating it _would_ discard that work, so the conservative
 answer is the correct one.
 
 **Marker classification reads raw bytes, not the ts-morph source.** ts-morph
@@ -684,7 +684,7 @@ file as hand-edited.
 
 1. **`PageObjectMethod`, `Fixture` and `DataFactory` types are derived in
    `scan.ts`**, not exported from `src/schemas/suite-index.ts`. The schema file
-   exports those *schemas* but not their inferred types, and it is LOCKED —
+   exports those _schemas_ but not their inferred types, and it is LOCKED —
    adding an export would be a change to a frozen Phase 0 file. Deriving them
    locally with `z.infer<typeof XSchema>` gives identical types and touches
    nothing frozen. If a later phase wants them centrally, that is a one-line
@@ -698,7 +698,7 @@ file as hand-edited.
    can sit on a `describe`, on an individual test, or in the options object,
    and distinguishing which tests a file-level tag applies to would need scope
    analysis the syntactic scan deliberately avoids. Over-attribution is the
-   safe direction: Phase 3 uses coverage to *skip* duplicates, so a false
+   safe direction: Phase 3 uses coverage to _skip_ duplicates, so a false
    "covered" is caught by the human reviewing the plan, while a false
    "uncovered" silently generates a duplicate test.
 
@@ -722,13 +722,13 @@ files are untouched except the two designated wiring points.
 Measured by `src/planner/golden-specs.test.ts`, which runs five feature specs
 against a fixed Screen Model with the LLM replaced by a deterministic responder.
 
-| Criterion (master plan Part C, Phase 3)                | Required | Result                    |
-| ------------------------------------------------------ | -------- | ------------------------- |
-| Plans reference only real Element ids                    | enforced | validator refuses the plan |
-| Every acceptance criterion covered                       | 5 specs  | checklist asserted per spec |
-| Correctly skips cases a pre-seeded suite covers           | yes      | forced `skipped-duplicate` |
-| `pnpm test`                                              | green    | **469 tests, 36 files**   |
-| `pnpm build` / `pnpm lint`                               | clean    | clean                     |
+| Criterion (master plan Part C, Phase 3)         | Required | Result                      |
+| ----------------------------------------------- | -------- | --------------------------- |
+| Plans reference only real Element ids           | enforced | validator refuses the plan  |
+| Every acceptance criterion covered              | 5 specs  | checklist asserted per spec |
+| Correctly skips cases a pre-seeded suite covers | yes      | forced `skipped-duplicate`  |
+| `pnpm test`                                     | green    | **469 tests, 36 files**     |
+| `pnpm build` / `pnpm lint`                      | clean    | clean                       |
 
 The responder is not a canned blob: it parses the element ids out of the prompt
 it receives and plans against them. A bug that stopped ids reaching the prompt
@@ -803,7 +803,7 @@ No other Phase 0, 1 or 2 file was modified.
 substring test, and every path contains a slash — so the natural hint for an
 app whose login screen is at the root (saucedemo's is) silently selected the
 whole model while still reporting `pages-hint`. Doubly bad: the
-"no page matched" disclosure never fired either, because the pages *looked*
+"no page matched" disclosure never fired either, because the pages _looked_
 explicitly hinted.
 
 `/` now means the root and nothing else: exact match on the normalized path
@@ -824,7 +824,7 @@ Two defects, both mine.
 
 1. **The diagnosis was discarded.** `AnthropicProvider` puts the actionable
    half in `hint` — the cause chain, the Node error code, and advice such as
-   which proxy variable to set. That machinery exists *because* a bare
+   which proxy variable to set. That machinery exists _because_ a bare
    "Connection error." wasted a round trip back in Phase 0. The planner relayed
    only `err.message`, reducing a diagnosable auth or TLS problem to one useless
    line. Provider failures are now re-thrown intact, and the retry feedback
@@ -840,7 +840,7 @@ Two defects, both mine.
 Worth noting for later: `AnthropicProvider.structured` already retries twice
 internally on schema mismatch, so the planner's outer retry makes up to four
 attempts for malformed output. The outer one earns its place by feeding back the
-*referential* check, which the inner loop cannot see.
+_referential_ check, which the inner loop cannot see.
 
 ### Anchor review across Phases 0–3 (operator-requested, 2026-08-11)
 
@@ -864,7 +864,7 @@ unrelated 400s untouched.
 `planHistoryCoverage` fed the feature's own stored plan into the coverage map,
 so a second `flint plan login` would force every case to `skipped-duplicate`
 with `duplicateOf` naming tests that were never generated. A re-plan supersedes
-its predecessor; only *other* features' plans are coverage. The operator would
+its predecessor; only _other_ features' plans are coverage. The operator would
 have hit this on their second successful run.
 
 **Fixed 3 — cross-origin iframes were skipped silently.** The plan's iframe
@@ -874,12 +874,12 @@ The extractor now logs each skipped frame with the page it sits on.
 
 **Standing gaps, re-confirmed (documented, not forgotten):**
 
-| Gap | Why it stands |
-| --- | --- |
-| `explorer.roles[]` has no consumer | Proper multi-role needs per-role auth; the LOCKED config schema has a single `auth` block. Needs a schema decision, not a workaround. `--role` covers manual per-role runs. |
-| Closed shadow roots not detected | The DOM offers no reliable signal (`shadowRoot === null` also means "no shadow root"). Logged-as-unreachable would be guesswork. |
-| `--review` prints rather than opens | Opening an editor is environment-specific; printing is the portable 90%. |
-| saucedemo + SPA live exit criterion | saucedemo now verified live by the operator across explore/validate/diff/index. The SPA demo app remains unverified — every public RealWorld deployment tried was dead. |
+| Gap                                 | Why it stands                                                                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `explorer.roles[]` has no consumer  | Proper multi-role needs per-role auth; the LOCKED config schema has a single `auth` block. Needs a schema decision, not a workaround. `--role` covers manual per-role runs. |
+| Closed shadow roots not detected    | The DOM offers no reliable signal (`shadowRoot === null` also means "no shadow root"). Logged-as-unreachable would be guesswork.                                            |
+| `--review` prints rather than opens | Opening an editor is environment-specific; printing is the portable 90%.                                                                                                    |
+| saucedemo + SPA live exit criterion | saucedemo now verified live by the operator across explore/validate/diff/index. The SPA demo app remains unverified — every public RealWorld deployment tried was dead.     |
 
 ### Open item
 
@@ -888,3 +888,57 @@ TLS-inspecting corporate proxy — `NODE_OPTIONS=--use-system-ca`. Verified as f
 as the call boundary here (correct actionable error, exit code 1, "did you mean"
 list for an unknown feature id); the end-to-end run against a live model is the
 operator's to do.
+
+### Review of the first live plan run (operator log, 2026-08-12)
+
+`flint plan login --review` against live saucedemo and `claude-opus-5` produced
+a usable plan on the first attempt: 6 cases (4 new, 2 blocked), 5 needing setup,
+all 3 acceptance criteria covered, 3 open questions, 6100 in / 3873 out tokens,
+42s. The temperature fallback fired as designed. Two defects came out of it —
+one of them found by the planner itself.
+
+**Fixed 1 — every `<input>` was modelled as `role: textbox`.** The planner's
+first open question was, in effect, a bug report against the extractor:
+
+> The site root exposes el-50b5011efc86 as an unnamed 'textbox' — it is assumed
+> to be the Login submit control (Swag Labs renders it as an input). Please
+> confirm; if it is a third input field, the Login button is missing from the
+> Screen Model and every sign-in case becomes blocked.
+
+saucedemo's Login control is `<input type="submit" value="Login">`.
+`implicitRole()` mapped every input to `textbox` and `readFacts` never read
+`type` or `value`, so the submit button arrived as an unnamed third text field.
+The cost was not only the confusing name: for checkboxes, radios and password
+fields the model carried a `getByRole('textbox', …)` candidate that cannot match
+anything, and for the submit button it carried no role candidate at all.
+
+The extractor now reads `type`, `value` and `alt`, maps input types per HTML-AAM
+(submit/reset/button/image → `button`, checkbox → `checkbox`, radio → `radio`,
+range → `slider`, number → `spinbutton`, search → `searchbox`, text/email/tel/url
+→ `textbox`), and returns **no role** for password, file and the date/colour
+family — `getByRole('textbox')` genuinely does not match those, so a role
+candidate would be a selector that resolves to nothing. Button-shaped inputs take
+their accessible name from `value` (falling back to the browser defaults
+"Submit"/"Reset"), image inputs from `alt`. 25 table-driven cases plus six live
+Chromium fixtures, including the saucedemo shape.
+
+_Operator impact:_ element ids hash the role and name, so the next
+`flint explore --diff` will legitimately report the input elements as
+removed + added. That is this fix landing, not app drift. Re-run
+`flint explore` once to rebuild the baseline.
+
+**Fixed 2 — `generatedAt` was whatever the model imagined.** The plan from
+2026-08-12 was stamped `2026-01-13T00:00:00.000Z`. The Stage A prompt asked the
+model for the timestamp, and a model has no clock. `featureId`,
+`screenModelVersion` and `generatedAt` are facts about the run, so the planner
+now overwrites all three after validation; the prompt (v2) still lists them so
+the schema validates on the first attempt, and now says outright that Flint
+replaces them. Anything downstream that reasons about plan age — staleness
+against the Screen Model, "was this re-planned after the crawl" — was reading
+fiction until this.
+
+**Not defects, recorded so they are not re-litigated:** the two blocked cases
+are correct behaviour. saucedemo's error banner only exists after a failed
+submit, so it is genuinely absent from a crawl of the initial state; the planner
+blocked rather than inventing an element id, which is the guarantee Phase 3 is
+built on. Reaching it needs a flow script (Phase 1 feature, operator's call).
