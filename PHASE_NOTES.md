@@ -1517,3 +1517,52 @@ repair history, and `--repair` on the CLI. The recurring bug to watch for there
 is the one that appeared four times in Phase 4 — Flint reading its own previous
 output as somebody else's input. Here it would be the loop treating its own last
 patch as the user's code.
+
+### The repair loop
+
+Built: the deterministic selector retry, the caps, the fixme history block, and
+`flint verify --repair`. The LLM repair path is not built — the loop says so
+explicitly rather than pretending it tried something.
+
+**Ordering, as the master plan requires.** A `selector-not-found` failure
+retries with the next verified candidate from the Screen Model _before_ any
+model is consulted. That attempt is free, instant, and cannot invent a selector:
+the replacement was confirmed against the live page during exploration, exactly
+like the one it replaces. Spending a model call first would be slower, costlier
+and strictly less trustworthy.
+
+**Two independent brakes.** `MAX_REPAIR_ITERATIONS = 2` (LOCKED) and a
+per-test wall-clock budget, both enforced inside `repairTest` rather than
+trusted to the caller. A repair loop missing either is how a tool spends an
+afternoon and a fortune rewriting a suite nobody asked it to touch, and it is
+invisible until it happens. Both are tested by asserting the loop _stops_.
+
+**What it refuses, and why that is the feature.** `env` failures — patching a
+test cannot start a stopped server. `unknown` failures — a blind edit to code
+that might be correct is precisely how a repair loop corrupts a suite. A page
+object whose contents do not match what the Emitter wrote — refusing hands the
+case to a human with the file intact rather than guessing at it. Each refusal
+carries its reason into the report.
+
+**An assertion mismatch that survives repair is promoted, not buried.** It is
+marked `possibleAppDefect` and the fixme block says plainly: check the
+application before changing the test. Flint finding a real bug is the point.
+
+**The recurring bug, and how this loop avoids it.** Four times in Phase 4 Flint
+read its own previous output as somebody else's input. The equivalent here would
+be the loop mistaking its own last patch for the user's code. Three things
+prevent it: every selector tried is remembered and never re-proposed; the
+"previous" expression is taken as the _most recently written_ one rather than
+the first in ranked order; and a patch is kept only when a re-run actually
+passes.
+
+That middle point was a real bug, caught by a test rather than by inspection.
+Taking the first-in-ranked-order candidate meant the second iteration tried to
+replace an expression the first iteration had already replaced — the swap
+silently failed to match and the loop gave up one attempt early, looking for all
+the world like "no other selector available".
+
+**A re-run that cannot be scoped returns the test unchanged**, which the loop
+reads as still-failing. Claiming a repair worked when the test was never
+actually re-run would be the worst available outcome, so the failure direction
+is deliberate.
