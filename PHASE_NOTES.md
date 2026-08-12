@@ -1509,15 +1509,6 @@ blamed on the test, the report was written to `.flint/reports/<runId>.json`, and
 the command exited 1. Full chain — spawn, parse, classify, assemble, write —
 exercised against real Playwright output rather than a fixture.
 
-### Still to build
-
-The repair loop: deterministic selector retry before any LLM call, max 2
-iterations LOCKED, per-test wall-clock timeout, fixme fallback carrying the
-repair history, and `--repair` on the CLI. The recurring bug to watch for there
-is the one that appeared four times in Phase 4 — Flint reading its own previous
-output as somebody else's input. Here it would be the loop treating its own last
-patch as the user's code.
-
 ### The repair loop
 
 Built: the deterministic selector retry, the caps, the fixme history block, and
@@ -1566,3 +1557,19 @@ the world like "no other selector available".
 reads as still-failing. Claiming a repair worked when the test was never
 actually re-run would be the worst available outcome, so the failure direction
 is deliberate.
+
+### Phase 5: what is built, and the one gap
+
+Built and tested: failure classifier, Playwright JSON report parser, environment
+health check, suite runner, run-report assembly and writer, deterministic
+selector retry, the repair caps, the fixme history block, and
+`flint verify [--feature] [--ready] [--repair] [--no-health-check]`.
+
+Not built: the LLM repair path. When no deterministic repair applies, the loop
+records `no deterministic repair applies to a <class> failure` and stops. That
+is an honest gap, not a silent one — the report says what was not attempted.
+
+Not yet verified: the Phase 5 exit criterion of a ≥90% post-repair pass rate.
+That needs a live `flint verify --repair` run against a real suite, which this
+sandbox cannot do (no browser binary, and the demo app is reached over the
+network). It is a run to make locally, not code to write.
