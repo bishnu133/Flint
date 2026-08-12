@@ -1105,3 +1105,61 @@ input found four defects in the emitted code.
 None of these would have failed the compile gate — they are all correct
 TypeScript. That is the argument for asserting emitted text directly in the
 unit tests rather than settling for "it compiled".
+
+### `<select>` naming, and a silent extraction failure under bundlers (2026-08-12)
+
+The generated suite contained:
+
+```ts
+await expect(inventoryHtmlPage.nameAToZNameZToAPriceLowToHighPriceHighToLowSelect).toBeVisible();
+```
+
+**Fixed 1 — content that is data, not a label.** A `<select>`'s `textContent`
+is the concatenation of its `<option>`s and a `<textarea>`'s is its current
+value. Neither is an accessible name. Treating them as one produced that
+identifier _and_ a `combobox[name="…"]` selector that can never match, wasting a
+candidate slot on every select in the app. The accessible-name chain now stops
+before `text` for those two tags.
+
+The broader ARIA rule — only roles that support "name from content" (button,
+link, heading, option, tab…) may take their name from text — is the fully
+correct version. It is deliberately not implemented: it would also strip the
+name from `[data-testid]` container divs, where the text currently is a useful
+label and the behaviour works. Recorded per CLAUDE.md rule 7 rather than done.
+
+**Fixed 2 — identifier length is now bounded.** A locator property takes at most
+the first 5 words of a name. The selector still uses the full name, and
+`uniquify` resolves any collision the trim creates.
+
+**Fixed 3 — a better fallback when there is no name.** The emitter passes
+`testId ?? domId ?? elementId`, so the saucedemo control reads as
+`productSortContainerSelect` rather than `el1a2b3c4dSelect`.
+
+**Fixed 4 — the serious one: `flint explore` captured nothing under `tsx`.**
+Found while reproducing the above. Functions passed to `locator.evaluate` are
+serialised with `Function.prototype.toString()` and re-parsed inside the page.
+esbuild's `keepNames` — on by default in `tsx`, which is exactly what this
+repo's own `pnpm cli` script uses — rewrites
+
+```
+const cssPath = () => { … }        ->  const cssPath = __name(() => { … }, 'cssPath')
+```
+
+and `__name` does not exist in the browser. Every element read threw a
+`ReferenceError`, the surrounding `.catch()` swallowed it, and the crawl
+reported **zero elements on every page** as though the application were empty.
+It reproduced under `pnpm cli` and not under the compiled binary or vitest,
+which is the worst possible split — the operator's runs were fine while the dev
+entry point was quietly broken.
+
+Three things changed:
+
+- `readFacts`'s callback now declares no named function binding; the two helpers
+  are inlined.
+- `extractFrame` warns when it found candidate elements but could not read a
+  single one. Skipping the odd detached node is normal; skipping all of them
+  means the in-page read is broken, and silence turns "wrong" into "empty".
+- `src/explorer/evaluated-callbacks.test.ts` guards the invariant across every
+  file that evaluates code in the page, with a self-check proving the guard is
+  not vacuous. (It earned its keep immediately: it caught its own too-loose
+  regex, and then caught the explanatory comment describing the bad pattern.)

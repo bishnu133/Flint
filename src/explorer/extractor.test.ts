@@ -230,6 +230,35 @@ describe('extractPage', () => {
     expect(roles).toEqual(['textbox', 'input', 'button']);
   });
 
+  it('does not name a <select> after its options', async () => {
+    // Regression: a select's textContent is the concatenation of its options,
+    // which is not an accessible name. saucedemo's sort control produced the
+    // property `nameAToZNameZToAPriceLowToHighPriceHighToLowSelect` and a
+    // `combobox[name="…"]` selector that could never match.
+    await setContent(`
+      <select data-testid="sort">
+        <option>Name (A to Z)</option>
+        <option>Price (low to high)</option>
+      </select>
+    `);
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.role).toBe('combobox');
+    expect(el.name).toBe('');
+    expect(el.selectorCandidates.some((c) => c.strategy === 'role')).toBe(false);
+  });
+
+  it('still names a <select> from its label or aria-label', async () => {
+    await setContent('<label for="s">Sort by</label><select id="s"><option>A</option></select>');
+    expect((await extractPage(page)).elements[0]!.name).toBe('Sort by');
+  });
+
+  it('does not name a <textarea> after the text already typed into it', async () => {
+    // A textarea's content is its value, not a label.
+    await setContent('<textarea data-testid="c">whatever the user typed</textarea>');
+    const el = (await extractPage(page)).elements[0]!;
+    expect(el.name).toBe('');
+  });
+
   it('always produces a css fallback candidate', async () => {
     await setContent('<button>Bare</button>');
     const el = (await extractPage(page)).elements[0]!;

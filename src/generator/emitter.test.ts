@@ -372,6 +372,20 @@ describe('emitFeature — degraded cases', () => {
     ]);
   });
 
+  it('tells a stale plan to re-plan, not to add a test id', () => {
+    // After a re-crawl, an element whose role or name changed gets a new id, so
+    // the stored plan references one that no longer exists. Adding a data-testid
+    // would not help — the fix is `flint plan`. Saying the wrong one costs the
+    // user a wasted round trip.
+    const result = emit([
+      testCase({ steps: [{ action: 'click', elementRef: 'el-from-an-older-crawl' }] }),
+    ]);
+    const reason = result.degraded[0]!.reason;
+    expect(reason).toContain('not in the current Screen Model');
+    expect(reason).toContain('flint plan');
+    expect(reason).not.toContain('data-testid');
+  });
+
   it('emits test.fixme when no candidate was verified unique', () => {
     // The anti-invention guard, at the last possible moment before code exists.
     const model: ScreenModel = {

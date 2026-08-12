@@ -109,6 +109,7 @@ export async function extractPage(page: PwPage, options: ExtractOptions = {}): P
       rankOptions,
       limit: remaining,
       seenIds,
+      logger,
       ...(options.provenance !== undefined ? { provenance: options.provenance } : {}),
     });
     elements.push(...frameElements);
@@ -169,6 +170,7 @@ interface FrameExtractOptions {
   limit: number;
   seenIds: Set<string>;
   provenance?: ElementProvenance;
+  logger?: Logger;
 }
 
 export interface FrameElementsOptions {
@@ -184,6 +186,7 @@ export interface FrameElementsOptions {
    * the opener first; page-load extraction leaves it unset.
    */
   provenance?: ElementProvenance;
+  logger?: Logger;
 }
 
 /**
@@ -203,6 +206,7 @@ export async function extractFrameElements(
     rankOptions: { i18n: options.i18n === true, testIdAttribute },
     limit: options.maxElements ?? DEFAULT_MAX_ELEMENTS,
     seenIds: options.seenIds ?? new Set<string>(),
+    ...(options.logger !== undefined ? { logger: options.logger } : {}),
     ...(options.provenance !== undefined ? { provenance: options.provenance } : {}),
   });
 }
@@ -213,14 +217,35 @@ async function extractFrame(frame: Frame, opts: FrameExtractOptions): Promise<El
     .all()
     .catch(() => []);
   const elements: Element[] = [];
+  const considered = handles.slice(0, opts.limit);
+  let unreadable = 0;
 
-  for (const locator of handles.slice(0, opts.limit)) {
+  for (const locator of considered) {
     const element = await extractElement(frame, locator, opts).catch(() => undefined);
     // A detached or unreadable node is skipped rather than failing the page.
-    if (element === undefined) continue;
+    if (element === undefined) {
+      unreadable += 1;
+      continue;
+    }
     if (opts.seenIds.has(element.id)) continue;
     opts.seenIds.add(element.id);
     elements.push(element);
+  }
+
+  // Skipping the odd detached node is normal. Skipping *every* node is not: it
+  // means the in-page read is broken, and staying quiet about it produces a
+  // Screen Model that looks merely empty rather than wrong. This fired for real
+  // when a bundler rewrote the evaluated callback (see readFacts).
+  if (considered.length > 0 && elements.length === 0) {
+    (opts.logger ?? silentLogger()).warn(
+      { frame: frame.url(), candidates: considered.length },
+      'extractor: found candidate elements but could not read any of them',
+    );
+  } else if (unreadable > 0) {
+    (opts.logger ?? silentLogger()).debug(
+      { frame: frame.url(), unreadable, captured: elements.length },
+      'extractor: some nodes could not be read',
+    );
   }
   return elements;
 }
@@ -272,38 +297,46 @@ async function readFacts(
 ): Promise<ReadFacts | undefined> {
   const raw = await locator
     .evaluate((node: globalThis.Element, attr: string) => {
+      // NOTE: this function is serialised and evaluated inside the page, so it
+      // must not contain any *named* function binding. A bundler with
+      // `keepNames` on (esbuild, which is what `tsx` and most dev runners use)
+      // rewrites `const f = () => {}` into `const f = __name(() => {}, 'f')`,
+      // and `__name` does not exist in the browser. The result was a silent
+      // `ReferenceError` swallowed by the catch below, so every page came back
+      // with zero elements. Keep everything inline.
       const el = node as globalThis.HTMLElement;
-      const labelText = (): string | undefined => {
-        const id = el.getAttribute('id');
-        if (id !== null && id !== '') {
-          const forLabel = el.ownerDocument.querySelector(`label[for="${CSS.escape(id)}"]`);
-          if (forLabel?.textContent) return forLabel.textContent.trim();
-        }
-        const wrapping = el.closest('label');
-        return wrapping?.textContent?.trim() ?? undefined;
-      };
+
+      let label: string | undefined;
+      const ownId = el.getAttribute('id');
+      if (ownId !== null && ownId !== '') {
+        const forLabel = el.ownerDocument.querySelector(`label[for="${CSS.escape(ownId)}"]`);
+        if (forLabel?.textContent) label = forLabel.textContent.trim();
+      }
+      if (label === undefined) {
+        label = el.closest('label')?.textContent?.trim() ?? undefined;
+      }
+
       // A short, scoped CSS path — the guaranteed last-resort candidate.
-      const cssPath = (): string => {
-        const parts: string[] = [];
-        let cur: globalThis.Element | null = el;
-        let depth = 0;
-        while (cur !== null && cur.nodeType === 1 && depth < 4) {
-          let part = cur.tagName.toLowerCase();
-          if (cur.id !== '') {
-            parts.unshift(`#${CSS.escape(cur.id)}`);
-            break;
-          }
-          const parent: globalThis.Element | null = cur.parentElement;
-          if (parent !== null) {
-            const sameTag = [...parent.children].filter((c) => c.tagName === cur!.tagName);
-            if (sameTag.length > 1) part += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
-          }
-          parts.unshift(part);
-          cur = parent;
-          depth += 1;
+      const parts: string[] = [];
+      let cur: globalThis.Element | null = el;
+      let depth = 0;
+      while (cur !== null && cur.nodeType === 1 && depth < 4) {
+        let part = cur.tagName.toLowerCase();
+        if (cur.id !== '') {
+          parts.unshift(`#${CSS.escape(cur.id)}`);
+          break;
         }
-        return parts.join(' > ');
-      };
+        const parent: globalThis.Element | null = cur.parentElement;
+        if (parent !== null) {
+          const tag = cur.tagName;
+          const sameTag = [...parent.children].filter((c) => c.tagName === tag);
+          if (sameTag.length > 1) part += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
+        }
+        parts.unshift(part);
+        cur = parent;
+        depth += 1;
+      }
+
       return {
         tagName: el.tagName.toLowerCase(),
         // `type` decides both the role and, for the button-shaped inputs, where
@@ -317,9 +350,9 @@ async function readFacts(
         explicitRole: el.getAttribute('role') ?? undefined,
         ariaLabel: el.getAttribute('aria-label') ?? undefined,
         placeholder: el.getAttribute('placeholder') ?? undefined,
-        label: labelText(),
+        label,
         text: el.textContent?.trim().slice(0, 120) ?? undefined,
-        css: cssPath(),
+        css: parts.join(' > '),
       };
     }, testIdAttribute)
     .catch(() => undefined);
@@ -367,6 +400,17 @@ const VALUE_NAMED_INPUTS: ReadonlySet<string> = new Set(['submit', 'reset', 'but
 const DEFAULT_INPUT_NAMES: Readonly<Record<string, string>> = { submit: 'Submit', reset: 'Reset' };
 
 /**
+ * Tags whose text content is data, not a label.
+ *
+ * A `<select>`'s textContent is the concatenation of its `<option>`s; a
+ * `<textarea>`'s is its current value. Neither is an accessible name, and
+ * treating them as one produced both an unusable identifier
+ * (`nameAToZNameZToAPriceLowToHighPriceHighToLowSelect`) and a
+ * `combobox[name="…"]` selector that can never match anything.
+ */
+const CONTENT_IS_NOT_A_NAME: ReadonlySet<string> = new Set(['select', 'textarea']);
+
+/**
  * Accessible name, following the parts of HTML-AAM that change which selector
  * we can emit.
  *
@@ -389,7 +433,8 @@ function accessibleName(facts: NameFacts): string | undefined {
       chain.push(facts.alt, facts.value);
     }
   }
-  chain.push(facts.label, facts.placeholder, facts.text);
+  chain.push(facts.label, facts.placeholder);
+  if (!CONTENT_IS_NOT_A_NAME.has(facts.tagName)) chain.push(facts.text);
   return chain.find((v) => v !== undefined && v.trim() !== '');
 }
 

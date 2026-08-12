@@ -153,13 +153,23 @@ const ROLE_SUFFIX: Readonly<Record<string, string>> = {
   heading: 'Heading',
 };
 
+/**
+ * Words of an accessible name that survive into an identifier.
+ *
+ * A long name makes an unreadable property. Truncating is safe because
+ * `uniquify` resolves any collision the truncation creates, and the selector —
+ * which is what actually addresses the element — is unaffected.
+ */
+const MAX_NAME_WORDS = 5;
+
 export function locatorName(role: string, name: string, fallback: string): string {
-  const base = name.trim() === '' ? '' : camelCase(name);
+  const base = name.trim() === '' ? '' : camelCase(words(name).slice(0, MAX_NAME_WORDS).join(' '));
   const suffix = ROLE_SUFFIX[role] ?? capitalize(camelCase(role));
   if (base === '') {
-    // No accessible name: fall back to something derived from the element id,
-    // which is itself a stable hash — never a positional index.
-    return camelCase(`${fallback} ${suffix}`);
+    // No accessible name. The caller passes the best remaining handle — a test
+    // id, then a dom id, then the element's own content-derived id. Never a
+    // positional index, which DOM reordering would churn.
+    return camelCase(`${words(fallback).slice(0, MAX_NAME_WORDS).join(' ')} ${suffix}`);
   }
   // Avoid `loginButtonButton` when the name already carries the noun.
   return base.toLowerCase().endsWith(suffix.toLowerCase()) ? base : `${base}${capitalize(suffix)}`;

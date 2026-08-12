@@ -93,6 +93,18 @@ export interface EmitResult {
 export const NEEDS_SETUP_TAG = '@needs-setup';
 
 /**
+ * The locator property name for an element.
+ *
+ * When an element has no accessible name — a `<select>` whose options are not a
+ * label, an icon-only button — the fallback is the best remaining human-readable
+ * handle: its test id, then its dom id, then its content-derived element id. A
+ * test id reads as `productSortContainerSelect`, which beats `el1a2b3c4dSelect`.
+ */
+function locatorFor(element: Element): string {
+  return locatorName(element.role, element.name, element.testId ?? element.domId ?? element.id);
+}
+
+/**
  * Compare two URLs as the browser would.
  *
  * The crawler records what the browser reported (`https://app.example.com`,
@@ -365,12 +377,10 @@ function buildPageObjects(
     // alphabetically rather than in element-id-hash order. The element id is
     // the tiebreak, which keeps the ordering total and therefore stable.
     const elements = [...entry.elements.values()].sort((a, b) => {
-      const byName = locatorName(a.role, a.name, a.id).localeCompare(
-        locatorName(b.role, b.name, b.id),
-      );
+      const byName = locatorFor(a).localeCompare(locatorFor(b));
       return byName !== 0 ? byName : a.id.localeCompare(b.id);
     });
-    const names = uniquify(elements.map((e) => locatorName(e.role, e.name, e.id)));
+    const names = uniquify(elements.map(locatorFor));
 
     const locatorNames = new Map<string, string>();
     const locators: EmittedLocator[] = [];
@@ -502,17 +512,32 @@ function decideMode(
     return { kind: 'fixme', reason: testCase.blockedReason ?? 'blocked by the planner' };
   }
 
-  const unusable = testCase.steps
+  // Core principle #1: nothing gets emitted that nobody verified. Two very
+  // different causes hide behind that, and they need different fixes, so they
+  // are reported separately rather than as one vague "cannot select" message.
+  const refs = testCase.steps
     .map((step) => step.elementRef)
-    .filter((ref): ref is string => ref !== undefined)
-    .filter((ref) => byElementId.get(ref)?.selector === undefined);
+    .filter((ref): ref is string => ref !== undefined);
 
-  if (unusable.length > 0) {
-    // Core principle #1: nothing gets emitted that nobody verified.
-    const unique = [...new Set(unusable)].sort();
+  // The element is not in the Screen Model at all: the plan predates the
+  // current crawl. Re-planning is the fix; adding a test id would not help.
+  const missing = [...new Set(refs.filter((ref) => !byElementId.has(ref)))].sort();
+  if (missing.length > 0) {
     return {
       kind: 'fixme',
-      reason: `no verified-unique selector for ${unique.join(', ')} — re-run \`flint explore\` or add a data-testid`,
+      reason: `${missing.join(', ')} ${missing.length === 1 ? 'is' : 'are'} not in the current Screen Model — this plan was made against an older crawl. Re-run \`flint plan\` for this feature.`,
+    };
+  }
+
+  // The element exists but no candidate survived live verification — usually a
+  // selector that matches more than one node. A test id fixes that.
+  const unverified = [
+    ...new Set(refs.filter((ref) => byElementId.get(ref)?.selector === undefined)),
+  ].sort();
+  if (unverified.length > 0) {
+    return {
+      kind: 'fixme',
+      reason: `no verified-unique selector for ${unverified.join(', ')} — every candidate matched zero or several nodes. Add a data-testid, or re-run \`flint explore\`.`,
     };
   }
 

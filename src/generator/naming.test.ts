@@ -107,6 +107,23 @@ describe('locatorName', () => {
   it('handles a role we have no noun for', () => {
     expect(locatorName('switch', 'Dark mode', 'el-abc')).toBe('darkModeSwitch');
   });
+
+  it('caps a long name so no element can produce a monster identifier', () => {
+    // A `<select>` once yielded `nameAToZNameZToAPriceLowToHighPriceHighToLow`.
+    // The selector still uses the full name; only the property is trimmed, and
+    // `uniquify` resolves any collision the trim creates.
+    const long = 'A button with a really quite extraordinarily long label indeed';
+    expect(locatorName('button', long, 'el-abc')).toBe('aButtonWithAReallyButton');
+  });
+
+  it('uses the caller-supplied handle when there is no accessible name', () => {
+    // The emitter passes testId ?? domId ?? element id, so an unnamed control
+    // reads as its test id rather than a hash.
+    expect(locatorName('combobox', '', 'product_sort_container')).toBe(
+      'productSortContainerSelect',
+    );
+    expect(locatorName('combobox', '', 'el-1a2b3c4d5e6f')).toBe('el1a2b3c4d5e6fSelect');
+  });
 });
 
 describe('actionMethodName', () => {
