@@ -1163,3 +1163,44 @@ Three things changed:
   file that evaluates code in the page, with a self-check proving the guard is
   not vacuous. (It earned its keep immediately: it caught its own too-loose
   regex, and then caught the explanatory comment describing the bad pattern.)
+
+### Re-planning a feature deleted its own tests (operator log, 2026-08-12)
+
+The most damaging bug found so far, and it only appears on the _second_ pass
+through the pipeline:
+
+```
+flint plan login      -> 3 new cases + 2 blocked
+flint generate login  -> writes login.spec.ts with those 3 tests
+flint plan login      -> all 3 come back `skipped-duplicate`
+flint generate login  -> rewrites login.spec.ts with ONLY the 2 blocked
+                         fixmes. The 3 working tests are gone.
+```
+
+The spec file is managed, so the writer replaced it without complaint. Nothing
+warned, and the operator's log shows exactly this: `skipped-duplicate 3`,
+`Tests: 2`, `update e2e/tests/login.spec.ts`.
+
+The planner was not wrong about the facts — those titles really were in the
+suite. It was wrong about what they meant. A test Flint generated for feature X
+is not prior art that a re-plan of X should defer to; it is the previous answer
+to the question being asked, and the new plan supersedes it.
+
+`supersedeOwnGeneratedTests` now removes, from the coverage map handed to the
+planner, the titles that live in **managed** spec files. Three properties make
+that safe:
+
+- Only managed files are hidden. A managed file is one Flint wrote and nobody
+  has touched since, so regenerating it loses nothing.
+- The moment a human edits it, it is `hand-edited` and its tests count as
+  coverage again — the planner defers to them. Conservative direction: at worst
+  a case is skipped that a human can un-skip.
+- Hand-written tests carrying the same feature tag are always kept. Those are
+  genuine prior art, and not duplicating them is the whole point of the index.
+
+Note this is the _third_ variant of the same underlying mistake — "Flint treats
+its own previous output as somebody else's work". The other two were
+`planHistoryCoverage` (a stored plan deduping against itself) and the page-object
+overwrite (a second feature dropping the first's locators). Worth watching for a
+fourth in Phase 5: a repair loop must not treat its own last attempt as the
+user's code.

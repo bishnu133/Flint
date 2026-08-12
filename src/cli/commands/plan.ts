@@ -9,6 +9,7 @@ import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { scanSuite } from '../../indexer/scan.js';
 import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
+import { countSuperseded, supersedeOwnGeneratedTests } from '../../planner/supersede.js';
 import { renderPlan } from '../../planner/plan-renderer.js';
 import {
   formatPlanSummary,
@@ -72,7 +73,11 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
 
   // The index gives the planner duplicate detection; plan history keeps a
   // feature planned-but-not-yet-generated from being planned twice.
-  const index = opts.index
+  // A re-plan supersedes its own previous output. Without this, the tests
+  // `flint generate` wrote last time read as prior art, every case comes back
+  // `skipped-duplicate`, and the next generate rewrites the spec with nothing
+  // in it — deleting working tests.
+  const scanned = opts.index
     ? scanSuite({
         projectRoot,
         suiteDir: config.suiteDir,
@@ -80,6 +85,17 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
         planHistory: planHistoryCoverage(projectRoot, { excludeFeature: spec.frontmatter.id }),
       }).index
     : undefined;
+
+  const superseded = scanned === undefined ? 0 : countSuperseded(scanned, spec.frontmatter.id);
+  const index =
+    scanned === undefined ? undefined : supersedeOwnGeneratedTests(scanned, spec.frontmatter.id);
+
+  if (superseded > 0) {
+    logger.info(
+      { feature: spec.frontmatter.id, superseded },
+      'plan: ignoring tests this feature generated previously — this plan replaces them',
+    );
+  }
 
   const conventions = readConventions(projectRoot, config.kbDir);
   const provider = new AnthropicProvider({ logger, logPrompts: config.debug.logPrompts });
