@@ -942,3 +942,84 @@ are correct behaviour. saucedemo's error banner only exists after a failed
 submit, so it is genuinely absent from a crawl of the initial state; the planner
 blocked rather than inventing an element id, which is the guarantee Phase 3 is
 built on. Reaching it needs a flow script (Phase 1 feature, operator's call).
+
+## Phase 4 — Emitter (Stage B)
+
+### Decision: Stage B is deterministic, not model-driven
+
+The master plan says "temperature 0 for Stage B", which anticipated an LLM
+writing the TypeScript. It is written as a pure transform instead.
+
+The reason is that the TestPlan is already a complete, validated instruction
+set: every step names an action, an element id that provably exists, and a
+value, and Phase 3 refuses any plan where that is not true. Turning that into
+Playwright code is mechanical. Doing it mechanically is what buys the three
+things Phase 4 is actually judged on — byte-identical regeneration, a 100%
+compile rate, and selectors that are exactly the ones exploration verified. A
+model in this position could only contribute naming flair, and would put all
+three at risk. CLAUDE.md rule 7 (prefer the simpler deterministic option,
+record the question, continue) points the same way.
+
+**Open question for the human:** if generated code should read more like a
+particular team's hand-written style than a template can manage, the place to
+add a model is behind the `Dialect` interface — a `llm-pom` dialect alongside
+`playwright-pom`, not a rewrite of the emitter. Nothing in Phase 4 forecloses
+that.
+
+### Degradation ladder (from the LOCKED TestPlan schema)
+
+In order, first match wins:
+
+1. `status: blocked` → `test.fixme()` carrying `blockedReason`.
+2. Any step's element has no verified-unique selector → `test.fixme()` naming
+   the element ids. This is core principle #1 at the last moment before code
+   exists: `pickBest` returns nothing, so nothing is emitted.
+3. Any step's element sits inside an iframe → `test.fixme()`. See below.
+4. `prerequisites` non-empty → the COMPLETE test, emitted as `test.skip()` with
+   each prerequisite as a comment.
+5. Otherwise → a live test.
+
+### Known gap: iframe-hosted elements
+
+The extractor verifies uniqueness _inside_ the frame. The selector that
+addresses the frame itself (`frameLocator(...)`) was never verified, and
+`framePath` records a frame name or URL, which does not map reliably onto a
+selector. Emitting one would break the guarantee that every emitted selector was
+confirmed against the live page, so a case touching an iframe element degrades
+to `test.fixme()` with that reason.
+
+Fixing it properly means having the extractor verify and record a selector for
+the frame element itself — a Phase 1 change to a frozen file, so it is recorded
+here rather than done. No demo app in the benchmark set uses iframes.
+
+### The compile gate runs before writing, and admits when it cannot run
+
+`tsc --noEmit` runs over a scratch copy of the suite (existing files + pending
+ones) under `.flint/gate/`, so a page object and the spec importing it are
+checked together, and a failed generation leaves the suite untouched.
+
+Two cases where it declines to run rather than reporting a false result:
+
+- the suite's `tsconfig.json` uses `extends` with a relative path, which would
+  resolve to nothing from the scratch directory;
+- every diagnostic is a missing bare module or missing `types` entry, which
+  means the suite's own dependencies were never installed. Reporting that as
+  "the generated code is wrong" would send a user hunting a bug that is not
+  there. A missing _relative_ import is still reported as our bug, because it
+  is one.
+
+In both cases `ran: false` is returned so no caller can mistake the skip for
+evidence that the code compiles.
+
+### Determinism
+
+Every identifier and filename comes from `src/generator/naming.ts`. Names derive
+from Screen Model facts; collisions break by shortest numeric suffix in a fixed
+order; the fallback for an unnamed element is its content-derived id, never a
+positional index — so reordering the DOM cannot churn the output. Locator
+properties are sorted by the name they will get, with the element id as
+tiebreak, which keeps the ordering total.
+
+The writer reports a byte-identical file as `unchanged` and does not rewrite it,
+which is what makes the determinism guarantee visible in `git status` rather
+than only in a test.

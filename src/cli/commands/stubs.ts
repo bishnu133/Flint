@@ -15,12 +15,6 @@ interface StubSpec {
 
 const STUBS: StubSpec[] = [
   {
-    name: 'generate',
-    phase: 4,
-    description: 'Emit Playwright TypeScript from a TestPlan (Stage B)',
-    args: [{ name: 'feature', description: 'feature id to generate', required: false }],
-  },
-  {
     name: 'verify',
     phase: 5,
     description: 'Run generated tests, classify failures, and repair',
