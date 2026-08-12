@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises';
-import { basename, join, resolve } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import type { Command } from 'commander';
 import { templatesDir } from '../../shared/paths.js';
 import { applyScaffold, detectConflicts, planScaffold } from '../scaffold.js';
@@ -41,8 +41,22 @@ async function runInit(opts: InitOptions): Promise<void> {
 
   let overwrite = opts.force;
   if (conflicts.length > 0 && !opts.force) {
+    const yours = conflicts.filter(holdsUserSettings);
     console.log(`\n${conflicts.length} file(s) already exist in ${targetDir}:`);
-    for (const c of conflicts) console.log(`  - ${c}`);
+    for (const c of conflicts) {
+      console.log(holdsUserSettings(c) ? `  - ${c}   <-- your settings` : `  - ${c}`);
+    }
+
+    if (yours.length > 0) {
+      // Overwriting flint.config.ts resets auth to `mode: 'none'`, and the very
+      // next `flint explore` then crawls the login screen instead of the app —
+      // a confusing failure two commands away from its cause.
+      console.log(
+        `\nWARNING: ${yours.length} of these hold configuration you have edited.` +
+          '\n         Overwriting flint.config.ts resets auth, baseUrl and models to defaults.' +
+          '\n         Answer "n" to add only the missing files and keep everything above.',
+      );
+    }
 
     if (opts.yes) {
       overwrite = true;
@@ -76,6 +90,18 @@ async function runInit(opts: InitOptions): Promise<void> {
   console.log('     Without it the generated suite cannot be typechecked or run.');
   console.log('  3. Write a feature spec under kb/features/.');
   console.log('  4. Run `flint hello-llm` to verify LLM wiring (needs ANTHROPIC_API_KEY).');
+}
+
+/**
+ * Files a user edits, as opposed to inert skeleton.
+ *
+ * `flint.config.ts` carries auth, baseUrl and model choices; `kb/` is the
+ * knowledge base they wrote. Everything else in the scaffold is a placeholder
+ * or a stub that can be replaced without losing work.
+ */
+function holdsUserSettings(relativePath: string): boolean {
+  const posix = relativePath.split(sep).join('/');
+  return posix === 'flint.config.ts' || posix.startsWith('kb/');
 }
 
 async function confirm(question: string): Promise<boolean> {

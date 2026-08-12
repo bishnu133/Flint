@@ -92,6 +92,38 @@ export interface EmitResult {
 /** Marks a test that is complete but waiting on setup. See the TestPlan schema. */
 export const NEEDS_SETUP_TAG = '@needs-setup';
 
+/** A trailing `@tag` token. Only trailing ones, so an `@` mid-sentence survives. */
+const TRAILING_TAG = /\s+(@[\w:.\-/]+)$/;
+
+/**
+ * Split a title into its prose and any tags already baked into it.
+ *
+ * Tags ride in the test title (that is how Playwright and the Phase 2 indexer
+ * both read them), which creates a feedback loop: the emitter appends tags to
+ * the title, the indexer reads those titles back, the planner sees the
+ * convention and starts writing tags into `title` itself, and the next emit
+ * appends them a second time. The operator's suite showed
+ * `… @feature:login @flint @feature:login @flint` — doubling on round two and
+ * tripling on round three.
+ *
+ * Pulling the tags back out makes the transform idempotent no matter what the
+ * planner puts in `title`, which is the robust place to fix it: the emitter
+ * cannot control what a model writes, only what it emits.
+ */
+export function splitTitleTags(title: string): { title: string; tags: string[] } {
+  let rest = title.trimEnd();
+  const found: string[] = [];
+  for (;;) {
+    const match = TRAILING_TAG.exec(rest);
+    if (match === null) break;
+    found.unshift(match[1]!);
+    rest = rest.slice(0, match.index).trimEnd();
+  }
+  // A title that is nothing but tags keeps its original text: dropping it
+  // would leave a nameless test, which is worse than a redundant one.
+  return rest === '' ? { title: title.trim(), tags: [] } : { title: rest, tags: found };
+}
+
 /**
  * The locator property name for an element.
  *
@@ -480,13 +512,18 @@ function buildTest(
     notes.push(`updates existing test: ${testCase.duplicateOf}`);
   }
 
+  // Tags the planner baked into the title come back out here, so the dialect
+  // appends exactly one copy however many rounds this feature has been through.
+  const split = splitTitleTags(testCase.title);
+  const tags = [...new Set([...testCase.tags, ...split.tags])];
+
   return {
     caseId: testCase.id,
-    title: testCase.title,
+    title: split.title,
     // `@needs-setup` is required by the TestPlan schema's emitter rule, and it
     // is the only thing that makes a skipped test findable: `--grep-invert
     // @needs-setup` is how a CI run excludes tests waiting on fixtures.
-    tags: mode.kind === 'skip' ? [...testCase.tags, NEEDS_SETUP_TAG] : testCase.tags,
+    tags: mode.kind === 'skip' ? [...tags, NEEDS_SETUP_TAG] : tags,
     mode,
     pageObjects: [...used.values()]
       .sort((a, b) => a.spec.className.localeCompare(b.spec.className))

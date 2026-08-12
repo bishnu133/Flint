@@ -280,6 +280,36 @@ describe('emitFeature — specs', () => {
     );
   });
 
+  it('does not double tags the planner already baked into the title', () => {
+    // A feedback loop: the emitter appends tags to the title, the indexer reads
+    // those titles back, the planner copies the convention into `title`, and
+    // the next emit appends them again. The operator's suite showed
+    // "… @feature:login @flint @feature:login @flint" on round two.
+    const source = fileNamed(
+      emit([testCase({ title: 'User signs in @flint @feature:login' })]),
+      'tests/login.spec.ts',
+    );
+    expect(source).toContain(`test('User signs in @feature:login @flint'`);
+    expect(source).not.toContain('@flint @feature:login @flint');
+  });
+
+  it('is stable however many rounds a title has been through', () => {
+    const once = fileNamed(emit([testCase({ title: 'User signs in' })]), 'tests/login.spec.ts');
+    const twice = fileNamed(
+      emit([testCase({ title: 'User signs in @feature:login @flint' })]),
+      'tests/login.spec.ts',
+    );
+    expect(twice).toBe(once);
+  });
+
+  it('keeps an @ that is part of the sentence', () => {
+    const source = fileNamed(
+      emit([testCase({ title: 'User signs in with a@b.com then sees products' })]),
+      'tests/login.spec.ts',
+    );
+    expect(source).toContain('User signs in with a@b.com then sees products');
+  });
+
   it('records the plan case id so a run report maps back to the plan', () => {
     expect(fileNamed(emit([testCase()]), 'tests/login.spec.ts')).toContain(
       '// plan case: valid-login',

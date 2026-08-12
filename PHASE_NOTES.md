@@ -1245,3 +1245,55 @@ the gate cannot silently go dormant again.
 Worth stating plainly: every earlier claim that "the gate passes" was really
 "the gate skipped". The `ran` flag existed precisely so a skip could not be
 mistaken for a pass, and it is what made this findable.
+
+### First green test, and the fourth self-input bug (operator log, 2026-08-12)
+
+A Flint-generated test passed against the live application for the first time:
+
+```
+✓ 4 …login.spec.ts:8:7 › Sign in to Swag Labs › User opening the site root
+    sees the sign-in form … (692ms)
+  3 skipped, 1 passed (1.3s)
+```
+
+`generate` also printed **"Typechecked clean before writing"** — the compile
+gate running for real against an installed suite, which had never happened
+before. Phase 4's pass-rate criterion is now measurable: of the tests that were
+runnable at all, 1 of 1 passed.
+
+**Fixed — tags doubled in test titles, compounding each round.** The suite showed
+
+```
+… lands on the products page @flint @feature:login @feature:login @flint @needs-setup
+```
+
+Tags ride in the test title, because that is how Playwright greps them and how
+the Phase 2 indexer reads them back. That closes a loop: the emitter appends
+tags to the title → the indexer reads those titles → the planner sees the
+convention and starts writing tags into `title` itself → the next emit appends
+a second copy. Round three would have produced three.
+
+`splitTitleTags` now pulls trailing `@tag` tokens back out of the title and
+folds them into the tag set, so the transform is idempotent whatever the planner
+writes. Only _trailing_ tokens are stripped, so a title containing `a@b.com`
+keeps it. Fixing this emitter-side rather than by tightening the prompt is
+deliberate: the emitter cannot control what a model writes, only what it emits.
+
+This is the **fourth** instance of the same root mistake — Flint treating its own
+previous output as somebody else's input. The others: `planHistoryCoverage`
+deduping a plan against itself, the page-object overwrite dropping another
+feature's locators, and a re-plan skipping its own generated tests. The prediction
+in the previous entry was that a fourth would appear; it did, within a day. Any
+value Flint writes that Flint later reads needs this question asked of it.
+
+**Fixed — `flint init` quietly reset the operator's auth config.** They answered
+`y` to the overwrite prompt, which replaced `flint.config.ts` with the template,
+resetting `auth.mode` to `none`. The next `flint explore` then crawled the login
+screen instead of the application (1 page, "login wall suspected") and the
+`populated-cart` flow timed out for want of a session — a confusing failure two
+commands away from its cause.
+
+The prompt now marks which conflicts hold user settings (`flint.config.ts`,
+`kb/**`), states plainly what overwriting them costs, and points at the "n"
+answer that adds only missing files. The capability is unchanged; the
+consequence is no longer hidden in a list of twelve paths.
