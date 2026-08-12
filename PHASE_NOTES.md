@@ -1023,3 +1023,51 @@ tiebreak, which keeps the ordering total.
 The writer reports a byte-identical file as `unchanged` and does not rewrite it,
 which is what makes the determinism guarantee visible in `git status` rather
 than only in a test.
+
+### Page-object reuse across features (exit criterion, found by testing it)
+
+"No duplicate page objects across two features touching the same page" is a
+Phase 4 exit criterion, and the first cut failed it — quietly, in the worst way.
+Generating `login` wrote a `HomePage` holding `loginButton`; generating `search`
+then overwrote the same file with a `HomePage` holding only `searchInput`. The
+file is managed, so the writer replaced it without complaint, and
+`login.spec.ts` was left importing a property that no longer existed.
+
+Flint now remembers what each page object exposes, in
+`.flint/page-objects.json`: per Screen Model page id, the contributing feature
+ids, the element ids exposed as locators, and the actions that became methods.
+`emitFeature` folds that record back into the current run's usage before
+building, so a page object accumulates the union of what every feature needs.
+
+Three properties worth stating, because they are what makes it safe:
+
+- **Element ids, not code.** The Screen Model stays the single source of truth
+  for roles, names and selectors. Parsing the emitted `.ts` file was the
+  alternative and is rejected: a page object a human had edited would feed those
+  edits back into generation, blurring the managed/hand-edited distinction the
+  whole writer depends on.
+- **A remembered element that is gone from the Screen Model is dropped, not
+  resurrected.** A page object must not outlive the UI it addresses. The spec
+  that used it then fails to compile — loudly, at the gate, before anything is
+  written.
+- **The merge is order-independent and idempotent.** Everything is a sorted
+  union, so generating `login` then `search` gives byte-identical output to
+  `search` then `login`, and regenerating either changes nothing.
+
+The record is written only after the files land, so a failed run cannot leave it
+claiming locators that were never emitted.
+
+### Phase 4 status
+
+Done: dialect interface + `playwright-pom`, POM emitter, spec emitter,
+page-object reuse, `tsc --noEmit` gate before writing, idempotent writer with
+hand-edit protection, `flint generate [--dry-run] [--no-gate]`.
+
+Not done, and not claimed:
+
+| Item                                                                               | Note                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fixture emitter (auth storageState fixture, data-factory stubs from prerequisites) | `flint init` scaffolds `e2e/fixtures/auth.fixture.ts` as a pass-through; generated specs do not use it yet. Prerequisites currently become comments on a skipped test. |
+| eslint gate                                                                        | The master plan asks for `tsc --noEmit` **and** eslint. Only the typecheck runs. Linting generated code needs the user's own eslint config, which may not exist.       |
+| Extending an existing hand-written page object found in the Suite Index            | Reuse works across Flint-generated page objects. A pre-existing hand-written `LoginPage` is not detected or extended — Flint writes its own class beside it.           |
+| ≥70% first-run pass rate on a demo app                                             | Requires a live `npx playwright test` run against saucedemo, which this environment cannot reach. Operator-verifiable only.                                            |

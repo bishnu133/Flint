@@ -9,6 +9,11 @@ import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { planPath, readPlan } from '../../planner/store.js';
 import { emitFeature } from '../../generator/emitter.js';
 import { resolveDialect } from '../../generator/dialects/index.js';
+import {
+  mergePageObjectRecords,
+  readPageObjectRecords,
+  writePageObjectRecords,
+} from '../../generator/page-object-store.js';
 import { applyWrites, formatWritePlan, planWrites } from '../../integrator/writer.js';
 import { runCompileGate } from '../../integrator/gate.js';
 import { discoverSuiteFiles } from '../../integrator/suite-files.js';
@@ -84,11 +89,16 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
   }
 
   const dialect = resolveDialect(config.dialect);
+  // What earlier features already put on these pages. Without it, generating a
+  // second feature that touches the same page would emit a page object holding
+  // only its own locators and break the first feature's spec.
+  const storedPageObjects = readPageObjectRecords(projectRoot);
   const result = emitFeature({
     plan,
     model,
     dialect,
     title: spec.frontmatter.title,
+    existingPageObjects: storedPageObjects,
     logger,
   });
 
@@ -146,6 +156,12 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
   }
 
   const applied = applyWrites(suiteRoot, decisions, logger);
+  // Written only after the files land, so a failed run cannot leave the record
+  // claiming locators that were never emitted.
+  writePageObjectRecords(
+    projectRoot,
+    mergePageObjectRecords(storedPageObjects, result.pageObjectRecords),
+  );
 
   console.log('');
   console.log(

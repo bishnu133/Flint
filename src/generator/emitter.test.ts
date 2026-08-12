@@ -393,6 +393,88 @@ describe('emitFeature — degraded cases', () => {
   });
 });
 
+describe('emitFeature — page-object reuse across features', () => {
+  // The exit criterion: no duplicate page objects across two features touching
+  // the same page. Before this, generating the second feature emitted a class
+  // holding only its own locators and broke the first feature's spec.
+  const clickCase = (ref: string) =>
+    testCase({ id: `case-${ref}`, steps: [{ action: 'click', elementRef: ref }] });
+
+  it('keeps what an earlier feature put on the page', () => {
+    const first = emit([clickCase('el-submit')]);
+    const second = emitFeature({
+      plan: plan([clickCase('el-user')]),
+      model: MODEL,
+      dialect: playwrightPomDialect,
+      title: 'Sign in',
+      existingPageObjects: first.pageObjectRecords,
+    });
+
+    const source = second.files.find((f) => f.path === 'pages/login.page.ts')!.contents;
+    expect(source).toContain('readonly loginButton: Locator;');
+    expect(source).toContain('readonly usernameInput: Locator;');
+    expect(source).toContain('async clickLoginButton()');
+    expect(source).toContain('async clickUsernameInput()');
+  });
+
+  it('reports what each page object now exposes, for the caller to persist', () => {
+    const result = emit([clickCase('el-submit')]);
+    expect(result.pageObjectRecords).toEqual([
+      {
+        className: 'LoginPage',
+        pageId: 'page-login',
+        features: ['login'],
+        elementIds: ['el-submit'],
+        actions: [{ kind: 'click', elementId: 'el-submit' }],
+      },
+    ]);
+  });
+
+  it('drops a remembered element that has vanished from the Screen Model', () => {
+    // A page object must not outlive the UI it addresses. The spec that used it
+    // stops compiling, which the gate catches before anything is written.
+    const stale = [
+      {
+        className: 'LoginPage',
+        pageId: 'page-login',
+        features: ['other'],
+        elementIds: ['el-long-gone'],
+        actions: [{ kind: 'click' as const, elementId: 'el-long-gone' }],
+      },
+    ];
+    const result = emitFeature({
+      plan: plan([clickCase('el-submit')]),
+      model: MODEL,
+      dialect: playwrightPomDialect,
+      title: 'Sign in',
+      existingPageObjects: stale,
+    });
+    const source = result.files.find((f) => f.path === 'pages/login.page.ts')!.contents;
+    expect(source).not.toContain('el-long-gone');
+    expect(source).toContain('readonly loginButton: Locator;');
+  });
+
+  it('leaves a page object for a page this feature never touches alone', () => {
+    const result = emitFeature({
+      plan: plan([clickCase('el-submit')]),
+      model: MODEL,
+      dialect: playwrightPomDialect,
+      title: 'Sign in',
+      existingPageObjects: [
+        {
+          className: 'InventoryHtmlPage',
+          pageId: 'page-inventory',
+          features: ['other'],
+          elementIds: ['el-title'],
+          actions: [],
+        },
+      ],
+    });
+    // Only the page this feature used is rewritten.
+    expect(result.files.map((f) => f.path)).toEqual(['pages/login.page.ts', 'tests/login.spec.ts']);
+  });
+});
+
 describe('emitFeature — determinism', () => {
   it('regenerating the same feature is byte-identical', () => {
     const first = emit([testCase({ id: 'a' }), testCase({ id: 'b' })]);

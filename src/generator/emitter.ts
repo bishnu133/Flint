@@ -1,6 +1,7 @@
 import type { Element, Page, ScreenModel } from '../schemas/screen-model.js';
 import type { PlanStep, TestCase, TestPlan } from '../schemas/test-plan.js';
 import { pickBest } from '../explorer/selector-ranker.js';
+import type { StoredPageObject } from './page-object-store.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
 import {
   actionMethodName,
@@ -46,6 +47,14 @@ export interface EmitOptions {
   dialect: Dialect;
   /** `describe` title — the feature spec's human title. */
   title: string;
+  /**
+   * What the page objects already expose, from features generated earlier.
+   *
+   * Two features touching the same page share one page object, so emitting the
+   * second must not drop what the first put there. Omitting this is only
+   * correct on a first run — `flint generate` always passes the stored record.
+   */
+  existingPageObjects?: StoredPageObject[];
   logger?: Logger;
 }
 
@@ -67,6 +76,11 @@ export interface DegradedCase {
 
 export interface EmitResult {
   files: EmittedFile[];
+  /**
+   * What each page object this run wrote now exposes. The caller merges this
+   * into the stored record so the next feature builds on it.
+   */
+  pageObjectRecords: StoredPageObject[];
   /** Cases emitted as `test.fixme()` or `test.skip()`, and why. */
   degraded: DegradedCase[];
   /** Cases the plan marked `skipped-duplicate`; nothing was written for them. */
@@ -97,6 +111,7 @@ export function emitFeature(options: EmitOptions): EmitResult {
     .map((c) => c.id);
 
   const usage = collectUsage(emittable, byElementId);
+  seedFromRecords(usage, options.existingPageObjects ?? [], byElementId, plan.featureId, logger);
   const pageObjects = buildPageObjects(usage, dialect);
 
   const degraded: DegradedCase[] = [];
@@ -132,10 +147,81 @@ export function emitFeature(options: EmitOptions): EmitResult {
 
   return {
     files,
+    pageObjectRecords: recordsFor(usage, pageObjects, plan.featureId),
     degraded,
     skippedDuplicates,
     pageObjects: [...pageObjects.values()].map((p) => p.spec.className).sort(),
   };
+}
+
+/**
+ * Fold what earlier features put on a page back into this run's usage.
+ *
+ * An element id that is no longer in the Screen Model, or that lost its
+ * verified-unique selector, is dropped and logged rather than carried: a page
+ * object must not outlive the UI it addresses. The spec that used it will fail
+ * to compile, which is the correct, loud outcome — and exactly what the compile
+ * gate is there to catch before anything is written.
+ */
+function seedFromRecords(
+  usage: Map<string, PageUsage>,
+  records: StoredPageObject[],
+  byElementId: Map<string, ResolvedElement>,
+  featureId: string,
+  logger: Logger,
+): void {
+  for (const record of records) {
+    // Only pages this run is regenerating; a page nobody touched keeps its file.
+    const entry = usage.get(record.pageId);
+    if (entry === undefined) continue;
+
+    const dropped: string[] = [];
+    for (const elementId of record.elementIds) {
+      const resolved = byElementId.get(elementId);
+      if (resolved === undefined || resolved.selector === undefined) {
+        dropped.push(elementId);
+        continue;
+      }
+      entry.elements.set(elementId, resolved.element);
+    }
+    for (const action of record.actions) {
+      if (!entry.elements.has(action.elementId)) continue;
+      entry.actions.set(`${action.kind}:${action.elementId}`, {
+        kind: action.kind,
+        elementId: action.elementId,
+      });
+    }
+
+    if (dropped.length > 0) {
+      logger.warn(
+        { feature: featureId, pageObject: record.className, elements: dropped.sort() },
+        'emit: dropping locators whose elements are gone from the Screen Model — specs using them will stop compiling',
+      );
+    }
+  }
+}
+
+/** What each page object this run wrote now exposes. */
+function recordsFor(
+  usage: Map<string, PageUsage>,
+  pageObjects: Map<string, BuiltPageObject>,
+  featureId: string,
+): StoredPageObject[] {
+  const records: StoredPageObject[] = [];
+  for (const [pageId, entry] of usage) {
+    const built = pageObjects.get(pageId);
+    if (built === undefined) continue;
+    records.push({
+      className: built.spec.className,
+      pageId,
+      features: [featureId],
+      elementIds: [...entry.elements.keys()].sort((a, b) => a.localeCompare(b)),
+      actions: [...entry.actions.values()]
+        .map((action) => ({ kind: action.kind, elementId: action.elementId }))
+        .sort((a, b) => `${a.kind}:${a.elementId}`.localeCompare(`${b.kind}:${b.elementId}`)),
+    });
+  }
+  return records.sort((a, b) => a.pageId.localeCompare(b.pageId));
 }
 
 /** Element id -> the element and the page it was captured on. */
