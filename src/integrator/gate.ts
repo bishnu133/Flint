@@ -16,13 +16,19 @@ import { silentLogger, type Logger } from '../shared/logger.js';
  * pending ones — so a page object and the spec importing it are typechecked
  * together, and a diverted file is checked in the position it will occupy.
  *
- * The scratch lives under `.flint/` rather than the system temp dir on purpose:
- * `moduleResolution` walks up from the tsconfig looking for `node_modules`, so
- * a copy outside the project would fail to find `@playwright/test` and report
- * a wall of missing-type errors that have nothing to do with the generated code.
+ * The scratch lives INSIDE the suite root on purpose. `moduleResolution` walks
+ * up from the tsconfig looking for `node_modules`, and the suite has its own —
+ * `@playwright/test` is a dependency of the generated suite, not of Flint, so
+ * it is installed at `<suiteRoot>/node_modules`. A scratch anywhere else (the
+ * system temp dir, or the project root) never sees it, and every run reports a
+ * wall of missing-type errors that have nothing to do with the generated code.
+ * That is not hypothetical: the gate silently skipped on every real project
+ * until this was corrected.
+ *
+ * It is removed in a `finally`, so it never outlives the check.
  */
 
-const SCRATCH_DIR = join('.flint', 'gate');
+const SCRATCH_DIR = '.flint-gate';
 
 export interface GateResult {
   ok: boolean;
@@ -34,9 +40,9 @@ export interface GateResult {
 }
 
 export interface GateOptions {
-  /** Absolute path of the project root (where `.flint/` lives). */
+  /** Absolute path of the project root. Kept for messages and future use. */
   projectRoot: string;
-  /** Absolute path of the suite root. */
+  /** Absolute path of the suite root. The scratch copy is made inside it. */
   suiteRoot: string;
   decisions: WriteDecision[];
   /** Existing suite files, as suite-relative path -> contents. */
@@ -65,7 +71,7 @@ export function runCompileGate(options: GateOptions): GateResult {
     return skip(logger, 'the suite tsconfig.json uses "extends", which the gate cannot relocate');
   }
 
-  const scratch = resolve(options.projectRoot, SCRATCH_DIR);
+  const scratch = resolve(options.suiteRoot, SCRATCH_DIR);
   rmSync(scratch, { recursive: true, force: true });
   try {
     write(scratch, 'tsconfig.json', tsconfig);

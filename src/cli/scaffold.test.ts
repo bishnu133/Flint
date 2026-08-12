@@ -30,6 +30,10 @@ describe('planScaffold', () => {
     expect(rels).toContain('flint.config.ts');
     expect(rels).toContain(join('kb', 'features', 'example.md'));
     expect(rels).toContain(join('e2e', 'playwright.config.ts'));
+    // The suite needs its own manifest: `@playwright/test` is not a Flint
+    // dependency, and without this `npm install` in e2e/ installs nothing, so
+    // the compile gate cannot run and no test can execute.
+    expect(rels).toContain(join('e2e', 'package.json'));
     // deterministic ordering
     expect([...rels]).toEqual([...rels].sort((a, b) => a.localeCompare(b)));
   });

@@ -1204,3 +1204,44 @@ its own previous output as somebody else's work". The other two were
 overwrite (a second feature dropping the first's locators). Worth watching for a
 fourth in Phase 5: a repair loop must not treat its own last attempt as the
 user's code.
+
+### The compile gate had never actually run (2026-08-12)
+
+Helping the operator get `npm install` working in their suite exposed two
+defects that made Phase 4's headline guarantee vacuous.
+
+**1. `flint init` scaffolded no `package.json` for the suite.** It wrote
+`playwright.config.ts`, `tsconfig.json` and the directory skeleton, but no
+manifest — so `npm install` inside `e2e/` had nothing to install and
+`npx playwright test` could never work. `@playwright/test` is a dependency of
+the _generated suite_, not of Flint, and nothing said so. The template now
+carries a manifest with `@playwright/test`, `@types/node` and `typescript`,
+plus scripts including `test:ready` (`--grep-invert @needs-setup`, which is what
+the tag is for). `flint init`'s next-steps now name the install explicitly.
+
+`@types/node` matters more than it looks: the scaffolded tsconfig declares
+`types: ["node", "@playwright/test"]`, so without it every run produced TS2688
+and the gate excused itself as "dependencies not installed".
+
+**2. The gate's scratch directory was in the wrong place.** It was written to
+`<projectRoot>/.flint/gate/`, and `moduleResolution` walks _up_ from the
+tsconfig looking for `node_modules`. The suite's dependencies live at
+`<suiteRoot>/node_modules`, which is not on that path — so even a correctly
+installed suite produced nothing but missing-module errors, `isEnvironmentOnly`
+classified them as environmental, and the gate skipped. **It had therefore never
+run against a real project.** The earlier operator logs saying "the suite's own
+dependencies are not installed" were half right for the wrong reason.
+
+The scratch now lives at `<suiteRoot>/.flint-gate`, removed in a `finally`, and
+`discoverSuiteFiles` ignores it so a copy cannot nest inside a copy.
+
+Verified end to end against a genuinely installed suite: `flint generate login`
+now prints "Typechecked clean before writing", the gate rejects
+`Property 'nope' does not exist on type 'Page'`, and `npx playwright test --list`
+discovers and compiles the generated spec. A regression test installs a fake
+package under `<suiteRoot>/node_modules` and asserts the gate resolves it, so
+the gate cannot silently go dormant again.
+
+Worth stating plainly: every earlier claim that "the gate passes" was really
+"the gate skipped". The `ran` flag existed precisely so a skip could not be
+mistaken for a pass, and it is what made this findable.

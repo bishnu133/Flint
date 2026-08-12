@@ -110,7 +110,7 @@ describe('runCompileGate', () => {
       decisions: [decision('pages/a.page.ts', 'export const a = 1;\n')],
       existingFiles: new Map(),
     });
-    expect(existsSync(join(projectRoot, '.flint', 'gate'))).toBe(false);
+    expect(existsSync(join(suiteRoot, '.flint-gate'))).toBe(false);
   }, 60_000);
 
   it('reports honestly when it could not run rather than claiming success', () => {
@@ -181,6 +181,40 @@ describe('runCompileGate', () => {
     });
     expect(result.ran).toBe(true);
     expect(result.ok).toBe(false);
+  }, 60_000);
+
+  it('resolves packages installed in the suite, not the project root', () => {
+    // The gate skipped on every real project until this was fixed. The suite's
+    // dependencies live at <suiteRoot>/node_modules — `@playwright/test` belongs
+    // to the generated suite, not to Flint — so a scratch copy anywhere else
+    // never sees them and the gate excuses itself as "deps not installed".
+    // A fake package stands in, which is enough to prove the resolution path.
+    mkdirSync(join(suiteRoot, 'node_modules', 'pretend-pkg'), { recursive: true });
+    writeFileSync(
+      join(suiteRoot, 'node_modules', 'pretend-pkg', 'package.json'),
+      JSON.stringify({ name: 'pretend-pkg', version: '1.0.0', types: 'index.d.ts' }),
+      'utf8',
+    );
+    writeFileSync(
+      join(suiteRoot, 'node_modules', 'pretend-pkg', 'index.d.ts'),
+      'export declare const answer: number;\n',
+      'utf8',
+    );
+
+    const result = runCompileGate({
+      projectRoot,
+      suiteRoot,
+      decisions: [
+        decision(
+          'pages/uses-dep.page.ts',
+          `import { answer } from 'pretend-pkg';\nexport const n: number = answer;\n`,
+        ),
+      ],
+      existingFiles: new Map(),
+    });
+    expect(result.skippedReason).toBeUndefined();
+    expect(result.ran).toBe(true);
+    expect(result.ok).toBe(true);
   }, 60_000);
 
   it('can be turned off', () => {

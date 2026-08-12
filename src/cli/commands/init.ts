@@ -71,8 +71,11 @@ async function runInit(opts: InitOptions): Promise<void> {
   }
   console.log('\nNext steps:');
   console.log('  1. Edit flint.config.ts (baseUrl, auth, models).');
-  console.log('  2. Write a feature spec under kb/features/.');
-  console.log('  3. Run `flint hello-llm` to verify LLM wiring (needs ANTHROPIC_API_KEY).');
+  console.log('  2. Install the suite toolchain, which is separate from Flint:');
+  console.log('       cd e2e && npm install && npx playwright install chromium');
+  console.log('     Without it the generated suite cannot be typechecked or run.');
+  console.log('  3. Write a feature spec under kb/features/.');
+  console.log('  4. Run `flint hello-llm` to verify LLM wiring (needs ANTHROPIC_API_KEY).');
 }
 
 async function confirm(question: string): Promise<boolean> {

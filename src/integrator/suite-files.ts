@@ -12,7 +12,15 @@ import { join, relative, sep } from 'node:path';
  * so a Windows suite produces the same keys as a Linux one.
  */
 
-const IGNORED_DIRS = new Set(['node_modules', '.git', 'test-results', 'playwright-report']);
+const IGNORED_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'test-results',
+  'playwright-report',
+  // The compile gate's own scratch copy, which lives inside the suite so that
+  // `node_modules` resolves. Reading it back would nest a copy in a copy.
+  '.flint-gate',
+]);
 
 export function discoverSuiteFiles(suiteRoot: string): Map<string, string> {
   const files = new Map<string, string>();
