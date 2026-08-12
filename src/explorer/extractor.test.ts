@@ -90,17 +90,20 @@ describe('pageId', () => {
 });
 
 describe('extractPage', () => {
-  it('captures interactive elements and skips non-interactive chrome', async () => {
+  it('captures what a test drives or asserts on, and skips the rest', async () => {
+    // A heading is captured deliberately: acceptance criteria assert on it.
+    // Prose is not — nothing addresses a bare <p>, and capturing every one
+    // would bury the elements that matter.
     await setContent(`
-      <h1>Not interactive</h1>
-      <p>Also not</p>
+      <h1>Products</h1>
+      <p>Just prose</p>
+      <span>Also just prose</span>
       <button data-testid="go">Go</button>
       <a href="/next">Next</a>
       <input aria-label="Email">
     `);
     const result = await extractPage(page);
-    expect(result.elements.length).toBe(3);
-    expect(result.elements.map((e) => e.tagName).sort()).toEqual(['a', 'button', 'input']);
+    expect(result.elements.map((e) => e.tagName).sort()).toEqual(['a', 'button', 'h1', 'input']);
   });
 
   it('verifies uniqueness live — a unique testid is verified and unique', async () => {
@@ -257,6 +260,43 @@ describe('extractPage', () => {
     await setContent('<textarea data-testid="c">whatever the user typed</textarea>');
     const el = (await extractPage(page)).elements[0]!;
     expect(el.name).toBe('');
+  });
+
+  it('captures an error banner, which is asserted on rather than clicked', async () => {
+    // The net used to catch only interactive elements, so saucedemo's
+    // `<h3 data-test="error">` was never captured and the planner kept
+    // correctly refusing to write the case: "no error-message element exists".
+    await setContent(`
+      <div class="error-message-container error">
+        <h3 data-test="error">Epic sadface: Username and password do not match</h3>
+        <button class="error-button"></button>
+      </div>
+    `);
+    const el = (await extractPage(page)).elements.find((e) => e.tagName === 'h3');
+    expect(el).toBeDefined();
+    expect(el?.name).toContain('Epic sadface');
+  });
+
+  it('captures headings and live regions', async () => {
+    await setContent(`
+      <h1>Products</h1>
+      <div role="alert">Something went wrong</div>
+      <div role="status">Saved</div>
+      <div aria-live="polite">3 items</div>
+    `);
+    const roles = (await extractPage(page)).elements.map((e) => e.role).sort();
+    expect(roles).toEqual(['alert', 'div', 'h1', 'status']);
+  });
+
+  it('honours the configured test-id attribute when deciding what to capture', async () => {
+    // Hardcoding `[data-testid]` meant an app using `data-test` had none of its
+    // deliberately-marked elements captured — the ones its authors flagged as
+    // mattering most.
+    await setContent('<span data-test="title">Products</span>');
+    expect((await extractPage(page)).elements).toHaveLength(0);
+    const captured = await extractPage(page, { testIdAttribute: 'data-test' });
+    expect(captured.elements).toHaveLength(1);
+    expect(captured.elements[0]?.testId).toBe('title');
   });
 
   it('always produces a css fallback candidate', async () => {

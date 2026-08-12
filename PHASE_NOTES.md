@@ -1335,3 +1335,57 @@ Also corrected a warning that overstated its case: dropping a locator whose
 element left the Screen Model said "specs using them will stop compiling", but
 in the operator's run nothing referenced it and the typecheck passed. It now
 says any spec _still referencing_ them will fail the gate.
+
+### The element net never caught the things tests assert on (2026-08-12)
+
+The operator added a flow script that drives saucedemo into its post-failed-
+submit state. The flow ran, captured two states — and the plan still came back
+with both error cases blocked, now down to **0 runnable tests**. The planner's
+report was precise enough to diagnose from:
+
+> only the Username textbox, the Password input, the Login button and **an
+> unlabelled button** (gated on the "login-errors" flow) that appears to be the
+> error dismiss control rather than the message itself
+
+saucedemo's error markup is:
+
+```html
+<h3 data-test="error">Epic sadface: Username and password do not match…</h3>
+<button class="error-button"></button>
+```
+
+The flow reached the state correctly. The extractor then captured the dismiss
+_button_ — because `button` was in its net — and discarded the `<h3>` carrying
+the message, which is the only thing AC3 actually needs.
+
+**Two defects, both in `INTERACTIVE_SELECTOR`.**
+
+1. _It only caught interactive elements._ Its own comment said "elements a test
+   could plausibly interact with **or assert on**", and the second half was
+   never implemented. An error banner is the most asserted-on element in any
+   sign-in feature; a heading is how a test confirms which page it is on. The
+   planner's earlier question "which on-page element identifies the products
+   page" was the same gap wearing a different hat. Headings (`h1`–`h6`,
+   `[role=heading]`), alerts, `[role=status]` and `[aria-live]` regions are now
+   captured.
+
+2. _It hardcoded `[data-testid]`._ The attribute is configurable everywhere else
+   — the ranker emits `[${testIdAttribute}="…"]` — but the capture net ignored
+   it. An app using `data-test` or `data-qa` therefore had **none** of its
+   deliberately-marked elements captured: precisely the elements its authors
+   flagged as mattering most, and the ones that score 100. It is now a parameter.
+
+Verified against saucedemo's real markup: with the default attribute the error
+`<h3>` is captured with its text (the fix that unblocks the operator today);
+with `testIdAttribute: 'data-test'` the test ids come through as well, plus the
+`<span data-test="title">Products</span>` that identifies the inventory page.
+
+One existing test asserted that an `<h1>` was skipped. That premise is exactly
+what changed, so the test was rewritten to state the new contract — a heading is
+captured because tests assert on it, bare prose is not — rather than weakened to
+keep passing.
+
+**Still needed, and it is a schema change: `explorer.testIdAttribute`.** Nothing
+in `FlintConfigSchema` lets a user say their app uses `data-test`, so fix (2) has
+no way to be switched on from a project. CLAUDE.md rule 4 puts schema changes
+behind explicit human approval, so this is recorded here rather than done.

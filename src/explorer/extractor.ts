@@ -23,23 +23,51 @@ import { silentLogger, type Logger } from '../shared/logger.js';
  * principle #1: the generator can never emit a selector nobody confirmed.
  */
 
-/** Elements a test could plausibly interact with or assert on. */
-const INTERACTIVE_SELECTOR = [
-  'a[href]',
-  'button',
-  'input:not([type="hidden"])',
-  'select',
-  'textarea',
-  '[role="button"]',
-  '[role="link"]',
-  '[role="checkbox"]',
-  '[role="radio"]',
-  '[role="tab"]',
-  '[role="menuitem"]',
-  '[role="option"]',
-  '[contenteditable="true"]',
-  '[data-testid]',
-].join(', ');
+/**
+ * Elements a test could plausibly interact with **or assert on**.
+ *
+ * The second half of that sentence was missing for a long time. The net caught
+ * only things you can click or type into, so an error banner — the single most
+ * asserted-on element in any sign-in feature — was never captured, and the
+ * planner kept correctly refusing to write the case: "no error-message element
+ * exists in the Screen Model". Headings and live regions are what acceptance
+ * criteria actually assert against, so they belong here.
+ *
+ * The test-id attribute is a parameter rather than a constant because it is
+ * configurable. Hardcoding `[data-testid]` meant an app using `data-test` or
+ * `data-qa` had *none* of its deliberately-marked elements captured — exactly
+ * the elements its authors flagged as mattering most.
+ */
+function interactiveSelector(testIdAttribute: string): string {
+  return [
+    'a[href]',
+    'button',
+    'input:not([type="hidden"])',
+    'select',
+    'textarea',
+    '[role="button"]',
+    '[role="link"]',
+    '[role="checkbox"]',
+    '[role="radio"]',
+    '[role="tab"]',
+    '[role="menuitem"]',
+    '[role="option"]',
+    '[contenteditable="true"]',
+    // Assertion targets: what a test checks rather than drives.
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    '[role="heading"]',
+    '[role="alert"]',
+    '[role="alertdialog"]',
+    '[role="status"]',
+    '[aria-live]',
+    `[${testIdAttribute}]`,
+  ].join(', ');
+}
 
 export interface ExtractOptions {
   /** Attribute holding test ids. Defaults to `data-testid`. */
@@ -213,7 +241,7 @@ export async function extractFrameElements(
 
 async function extractFrame(frame: Frame, opts: FrameExtractOptions): Promise<Element[]> {
   const handles = await frame
-    .locator(INTERACTIVE_SELECTOR)
+    .locator(interactiveSelector(opts.testIdAttribute))
     .all()
     .catch(() => []);
   const elements: Element[] = [];
