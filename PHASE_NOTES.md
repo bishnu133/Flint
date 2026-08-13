@@ -1445,7 +1445,7 @@ worth carrying into Phase 5:
 | Fixture emitter                                | Auth storageState fixture and data-factory stubs. Not built; prerequisites become comments on a skipped test.                            |
 | eslint gate                                    | Plan asks for `tsc` **and** eslint; only the typecheck runs. Needs the user's own config.                                                |
 | Extend a pre-existing hand-written page object | Reuse works across Flint-generated ones only.                                                                                            |
-| `explorer.testIdAttribute`                     | The capture net honours the attribute now, but no config key exists to set it. **Schema change — awaiting approval** (CLAUDE.md rule 4). |
+| `explorer.testIdAttribute`                     | **Resolved 2026-08-13** — approved and shipped. See "The `explorer.testIdAttribute` key" below.                                          |
 | iframe-hosted elements                         | Degrade to `test.fixme`; the frame's own selector was never verified.                                                                    |
 
 ## Phase 5 — Verifier (in progress)
@@ -1573,3 +1573,66 @@ Not yet verified: the Phase 5 exit criterion of a ≥90% post-repair pass rate.
 That needs a live `flint verify --repair` run against a real suite, which this
 sandbox cannot do (no browser binary, and the demo app is reached over the
 network). It is a run to make locally, not code to write.
+
+## The `explorer.testIdAttribute` key (schema change, approved 2026-08-13)
+
+The second post-Phase-0 schema change, and like the first (`Element.provenance`)
+it went through explicit human approval per CLAUDE.md rule 4.
+
+**The bug it fixes was one of wiring, not logic.** `buildCandidates` and the
+element capture net had always accepted a `testIdAttribute` option
+(`selector-ranker.ts:66`, `extractor.ts:104`). Nothing ever passed one. The
+crawler had the whole `FlintConfig` in hand and did not forward it, and
+`FlintConfigSchema` had no key to forward. So `'data-testid'` — a library-level
+fallback default — was the only value any real run has ever used.
+
+On an app that marks its hooks `data-test` (saucedemo, and plenty of others)
+`facts.testId` was therefore always `undefined`, the `testid` candidate was never
+built, and every selector silently degraded to role, label or CSS. That is
+precisely the fragility the LOCKED ranking exists to prevent: a role selector
+breaks when someone renames a button, a `data-test` attribute does not. The
+Phase 4 suite passing 4/4 was passing on second-choice selectors.
+
+```ts
+testIdAttribute: z.string()
+  .min(1, 'explorer.testIdAttribute cannot be empty (e.g. "data-testid" or "data-test")')
+  .default('data-testid'),
+```
+
+**Additive and defaulted to the previously hardcoded value**, so no config that
+predates it changes behaviour. Threaded at three call sites — the crawler's
+`extractPage`, the interaction pass, and `flows.ts`. That third one matters:
+`elementId()` hashes the test id, so a flow capturing the same element with a
+different attribute than the crawl would mint two ids for one element.
+
+**Known consequence, accepted at approval time.** Setting this to a new value
+changes `elementId` for every element carrying that attribute. The first
+`flint explore` after the change reports the whole app as drifted under `--diff`,
+and an existing TestPlan's `elementId` references go stale — the referential
+validator will reject it, which is the correct behaviour rather than a
+regression. Re-run `flint plan` and `flint generate` once after changing it.
+
+**No coupling to Playwright's own `testIdAttribute`.** The dialect emits
+`this.page.locator('[data-test="x"]')`, a plain CSS attribute selector, not
+`getByTestId` (`playwright-pom.ts:54`). The scaffolded `playwright.config.ts`
+needs no matching setting.
+
+### Tested through `crawl`, not through the extractor
+
+Two new tests in `crawler.test.ts` go through the full `crawl` entry point,
+because an extractor-level test could never have caught this: the extractor was
+correct the whole time. One asserts the configured attribute produces a
+score-100 `testid` candidate ranked first; the other pins the degraded
+behaviour, so a future regression reads as "fell back to a weaker selector"
+rather than passing silently. The fixture page is unlinked and reached by
+`startUrl`, so it does not shift the page counts the BFS and budget tests
+assert on.
+
+### Sandbox note: the browser-backed tests can run here after all
+
+`FLINT_BROWSER_EXECUTABLE=/opt/pw-browsers/chromium` launches the
+pre-installed Chromium (revision 1194) even though Playwright 1.62.1 wants
+1234. All 24 pre-existing `crawler.test.ts` cases pass under it. Previous runs
+that reported these as skipped were skipping for lack of a browser, not by
+design — worth knowing, since a skipped test that reads as a pass is the exact
+failure mode Phase 5 was built to avoid.

@@ -362,6 +362,7 @@ async function visit(page: PwPage, item: QueueItem, ctx: VisitContext): Promise<
 
   const captured = await extractPage(page, {
     i18n: config.explorer.i18n,
+    testIdAttribute: config.explorer.testIdAttribute,
     logger: ctx.logger,
     normalizeRules,
     reachedVia:
@@ -393,6 +394,7 @@ async function visit(page: PwPage, item: QueueItem, ctx: VisitContext): Promise<
   const pass = await runInteractionPass(page, captured2.elements, {
     dangerousActionPatterns: config.explorer.dangerousActionPatterns,
     i18n: config.explorer.i18n,
+    testIdAttribute: config.explorer.testIdAttribute,
     logger: ctx.logger,
   }).catch(() => undefined);
 

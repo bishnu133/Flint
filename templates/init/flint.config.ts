@@ -21,6 +21,12 @@ export default {
     dangerousActionPatterns: ['logout', 'delete', 'submit', 'pay', 'remove'],
     i18n: false,
     roles: [],
+    // The attribute your app marks test hooks with. This is the single highest
+    // -value setting here: it feeds the top-ranked selector strategy (score
+    // 100). Get it wrong and Flint silently falls back to role and CSS
+    // selectors, which break when someone renames a button.
+    // Check your markup — saucedemo uses 'data-test', many apps use 'data-qa'.
+    testIdAttribute: 'data-testid',
   },
 
   // Model per pipeline role — change any of these to suit your cost/quality bar.

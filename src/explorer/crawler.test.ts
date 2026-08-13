@@ -44,6 +44,12 @@ const SITE: Record<string, string> = {
     <a href="/item.html?id=1">One</a><a href="/item.html?id=2">Two</a><a href="/item.html?id=3">Three</a>
   </body></html>`,
   '/item.html': `<html lang="en"><body><h1>Item</h1><button data-testid="buy">Buy</button></body></html>`,
+  // Unlinked on purpose: reached only via an explicit startUrl, so adding it
+  // does not shift the page counts the budget and BFS tests assert on.
+  '/qa': `<html lang="en"><body>
+    <h1>QA</h1>
+    <button data-qa="checkout">Checkout</button>
+  </body></html>`,
   '/wall': `<html lang="en"><body>
     <h1>Sign in</h1>
     <form method="POST" action="/wall">
@@ -278,4 +284,45 @@ describe('crawl', () => {
     const b = await crawl(context, { config: config({ explorer: { maxPages: 4 } }) });
     expect(b.model.pages.map((p) => p.id).sort()).toEqual(a.model.pages.map((p) => p.id).sort());
   }, 90_000);
+});
+
+/**
+ * The wiring, not the extractor.
+ *
+ * `extractPage` has always honoured `testIdAttribute`; the crawler never passed
+ * it, so the hardcoded default was the only value any real run ever used. An app
+ * on `data-test` silently got no test-id selectors at all and fell back to role
+ * and CSS — the exact fragility the LOCKED ranking exists to prevent. Testing
+ * the extractor in isolation could never have caught that, so these go through
+ * `crawl`.
+ */
+describe('crawl — explorer.testIdAttribute', () => {
+  it('builds a top-ranked testid candidate using the configured attribute', async () => {
+    const result = await crawl(context, {
+      config: config({ explorer: { testIdAttribute: 'data-qa' } }),
+      startUrl: `${baseUrl}/qa`,
+    });
+    const button = result.model.pages
+      .flatMap((p) => p.elements)
+      .find((e) => e.name === 'Checkout');
+    expect(button?.testId).toBe('checkout');
+    const testid = button?.selectorCandidates.find((c) => c.strategy === 'testid');
+    expect(testid?.value).toBe('[data-qa="checkout"]');
+    expect(testid?.score).toBe(100);
+    // Score 100 is the top of the ranking, so it must also be what the Emitter
+    // would pick.
+    expect(button?.selectorCandidates[0]?.strategy).toBe('testid');
+  }, 60_000);
+
+  it('finds no testid candidate when the attribute does not match the app', async () => {
+    // The old behaviour, now reachable only by configuring it wrong. Asserting
+    // it keeps the regression legible: the element is still captured, it just
+    // degrades to a weaker selector.
+    const result = await crawl(context, { config: config(), startUrl: `${baseUrl}/qa` });
+    const button = result.model.pages
+      .flatMap((p) => p.elements)
+      .find((e) => e.name === 'Checkout');
+    expect(button).toBeDefined();
+    expect(button?.selectorCandidates.some((c) => c.strategy === 'testid')).toBe(false);
+  }, 60_000);
 });

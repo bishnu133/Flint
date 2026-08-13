@@ -237,6 +237,9 @@ export async function replayFlows(
         await waitForDomStable(page);
         const captured = await extractPage(page, {
           i18n: config.explorer.i18n,
+          // Must match the crawler's, or the same element captured both ways
+          // gets two different ids — `elementId` hashes the test id.
+          testIdAttribute: config.explorer.testIdAttribute,
           normalizeRules,
           reachedVia: { kind: 'flow', flowId: definition.id, step },
           // Every element here exists only in the state this flow produced.

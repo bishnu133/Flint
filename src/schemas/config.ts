@@ -67,6 +67,20 @@ export const ExplorerConfigSchema = z
       .default(['logout', 'delete', 'submit', 'pay', 'remove']),
     /** When true, selector ranking demotes text-based strategies. */
     i18n: z.boolean().default(false),
+    /**
+     * The attribute this application marks test hooks with.
+     *
+     * Drives both halves of the top-ranked strategy: which elements the capture
+     * net pulls in, and whether a `testid` candidate (score 100, the highest in
+     * the LOCKED ranking) can be built at all. An app that uses `data-test` and
+     * leaves this at the default gets no test-id selectors whatsoever, and
+     * silently falls back to role and CSS — which is exactly the fragility the
+     * ranking exists to avoid.
+     */
+    testIdAttribute: z
+      .string()
+      .min(1, 'explorer.testIdAttribute cannot be empty (e.g. "data-testid" or "data-test")')
+      .default('data-testid'),
     /** Roles to build a Screen Model per; empty = single anonymous model. */
     roles: z.array(z.string()).default([]),
     /** Patterns that mark a page as bot-blocked / unreachable. */

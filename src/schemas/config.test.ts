@@ -65,6 +65,37 @@ describe('FlintConfigSchema', () => {
     }
   });
 
+  it('defaults testIdAttribute to data-testid, so existing configs keep working', () => {
+    // The key was added after Phase 0 with explicit approval. Additive and
+    // defaulted to the value that was previously hardcoded, so no project that
+    // predates it changes behaviour on upgrade.
+    expect(FlintConfigSchema.parse(minimalValid).explorer.testIdAttribute).toBe('data-testid');
+  });
+
+  it('accepts an app-specific testIdAttribute', () => {
+    const parsed = FlintConfigSchema.parse({
+      ...minimalValid,
+      explorer: { testIdAttribute: 'data-test' },
+    });
+    expect(parsed.explorer.testIdAttribute).toBe('data-test');
+  });
+
+  it('rejects an empty testIdAttribute, naming a value that would work', () => {
+    // An empty string would build `[="x"]` — a selector that throws at runtime
+    // rather than one that merely fails to match, so it must not parse.
+    const result = FlintConfigSchema.safeParse({
+      ...minimalValid,
+      explorer: { testIdAttribute: '' },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const issue = result.error.issues.find(
+        (i) => i.path.join('.') === 'explorer.testIdAttribute',
+      );
+      expect(issue?.message).toMatch(/data-testid/);
+    }
+  });
+
   it('rejects an unknown top-level key (strict schema)', () => {
     const result = FlintConfigSchema.safeParse({ ...minimalValid, baseURL: 'https://x.com' });
     expect(result.success).toBe(false);
