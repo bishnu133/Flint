@@ -1924,3 +1924,69 @@ change it, and that thinking shares the budget.
 No schema change was made. A per-stage output budget would be a reasonable
 config key, but it needs approval under rule 4 and the deterministic fix
 unblocks the operator now.
+
+### Stale page objects across features (the `testIdAttribute` aftershock)
+
+`flint generate cart` failed the compile gate on five errors, **all in
+`tests/login.spec.ts`** — a file that run never touched:
+
+```
+tests/login.spec.ts(30,36): error TS2339: Property 'elCf510ff0b994Select' does not
+  exist on type 'InventoryHtmlPage'.
+error: The generated suite failed the compile gate.
+hint: This is a Flint bug — please report the feature id and the errors above.
+```
+
+**The gate was right and the message was wrong.** Setting
+`testIdAttribute: 'data-test'` changed every element id (they hash the test id).
+`login` had been generated against the *old* ids, and its records in
+`.flint/page-objects.json` still named them. Generating `cart` re-emits the
+shared page objects, drops stored locators whose elements are no longer in the
+model — and `login.spec.ts`, untouched on disk, is left referencing properties
+that no longer exist.
+
+This is the fifth appearance of the recurring bug class: **Flint reading its own
+previous output as somebody else's input.** The page-object store is Flint's own
+record from an earlier run, and nothing checked whether it still matched the
+current model.
+
+**Flint already knew the answer and threw it away.** `seedFromRecords` logged
+`dropped locators whose elements are no longer in the Screen Model; any spec
+still referencing them will fail the compile gate` — an exactly correct
+prediction, at `warn` level, seconds before the gate proved it — and then the CLI
+called the result a bug and asked for a report. The stored record even carries
+`features`, so the owning feature was in hand the whole time.
+
+`EmitResult` now carries `staleLocators` (class name, dropped element ids, and
+the features that own them, excluding the one being regenerated — it is
+rewriting its own spec, so it is not the one left dangling). When the gate fails
+and that list is non-empty, `flint generate` says what actually happened and
+prints the exact commands, in order:
+
+```
+This is a stale-suite failure, not a defect in the generated code.
+  InventoryHtmlPage: 3 locator(s) dropped
+The errors above are in login — feature(s) this run did not regenerate.
+Re-plan and re-generate them first, then this one:
+
+  flint plan login --dir /Users/…/flint-demo
+  flint generate login --dir /Users/…/flint-demo
+  flint generate cart --dir /Users/…/flint-demo
+```
+
+Re-planning is part of the remedy, not optional: the stale feature's *plan*
+references the old element ids too, so regenerating without re-planning would
+fail the referential validator instead.
+
+**Ordering is why the operator's loop failed.** `for f in cart example-login
+login` is alphabetical, and `cart` came first — merging `login`'s stale records
+before `login` had a chance to be rebuilt. Had `login` run first, its spec and
+records would have been rewritten together and the run would have converged. A
+one-shot `flint ci` that orders this correctly is Phase 6; until then the
+message tells the operator the order.
+
+**Not fixed, deliberately:** the emitter still drops the stale locators rather
+than keeping them. A page object must not outlive the UI it addresses, and
+keeping a locator for an element the explorer can no longer find would trade a
+loud compile error for a silent runtime failure. The gate blocking the write is
+the correct outcome — the defect was only ever the explanation.

@@ -8,7 +8,7 @@ import { dirSuffix } from '../hints.js';
 import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { planPath, readPlan } from '../../planner/store.js';
-import { emitFeature } from '../../generator/emitter.js';
+import { emitFeature, type StaleLocators } from '../../generator/emitter.js';
 import { resolveDialect } from '../../generator/dialects/index.js';
 import {
   mergePageObjectRecords,
@@ -160,9 +160,38 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
     console.log('Generated code does not typecheck; nothing was written:');
     for (const line of gate.errors.slice(0, 20)) console.log(`  ${line}`);
     if (gate.errors.length > 20) console.log(`  … and ${gate.errors.length - 20} more`);
+
+    // The common cause is not a bug in the emitter: the Screen Model changed
+    // under page objects an earlier feature generated, so that feature's spec
+    // still names locators this run removes. Flint knows exactly which features
+    // those are — saying "report a bug" when it can name the fix is a failure
+    // to use what it already worked out.
+    const stalled = staleFeatures(result.staleLocators);
+    if (stalled.length > 0) {
+      console.log('');
+      console.log('This is a stale-suite failure, not a defect in the generated code.');
+      console.log('The Screen Model has changed since these page objects were written, so');
+      console.log('locators they used no longer exist:');
+      for (const stale of result.staleLocators) {
+        console.log(`  ${stale.className}: ${stale.elementIds.length} locator(s) dropped`);
+      }
+      console.log('');
+      console.log(`The errors above are in ${stalled.join(', ')} — feature(s) this run did not`);
+      console.log('regenerate. Re-plan and re-generate them first, then this one:');
+      console.log('');
+      for (const feature of stalled) {
+        console.log(`  flint plan ${feature}${dirSuffix(opts.dir)}`);
+        console.log(`  flint generate ${feature}${dirSuffix(opts.dir)}`);
+      }
+      console.log(`  flint generate ${featureId}${dirSuffix(opts.dir)}`);
+    }
+
     throw new FlintError('The generated suite failed the compile gate.', {
       code: 'GENERATE',
-      hint: 'This is a Flint bug — please report the feature id and the errors above. Re-run with --no-gate to write anyway.',
+      hint:
+        stalled.length > 0
+          ? `Regenerate ${stalled.join(', ')} first — see the commands above. Nothing was written.`
+          : 'This is a Flint bug — please report the feature id and the errors above. Re-run with --no-gate to write anyway.',
     });
   }
 
@@ -204,4 +233,15 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
     console.log('');
     console.log(`NOTE: compile gate skipped — ${gate.skippedReason}.`);
   }
+}
+
+/**
+ * Features whose specs still reference locators this run drops.
+ *
+ * These are the ones that must be re-planned and re-generated first: their
+ * plans reference the old element ids too, so regenerating without re-planning
+ * would just fail the referential validator instead.
+ */
+function staleFeatures(stale: readonly StaleLocators[]): string[] {
+  return [...new Set(stale.flatMap((s) => s.features))].sort();
 }

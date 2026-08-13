@@ -87,6 +87,24 @@ export interface EmitResult {
   skippedDuplicates: string[];
   /** Page-object class names this feature touched. */
   pageObjects: string[];
+  /**
+   * Locators dropped because the Screen Model no longer contains their element.
+   *
+   * Non-empty means the model changed under page objects an *earlier* feature
+   * generated — so that feature's spec still references locators this run is
+   * about to remove, and the compile gate will fail on a file this run never
+   * touched. Carrying the owning feature ids out lets the CLI name what has to
+   * be regenerated instead of calling the result a bug.
+   */
+  staleLocators: StaleLocators[];
+}
+
+/** One page object that lost locators, and the features that were using them. */
+export interface StaleLocators {
+  className: string;
+  elementIds: string[];
+  /** Features that contributed to this page object, per the stored record. */
+  features: string[];
 }
 
 /** Marks a test that is complete but waiting on setup. See the TestPlan schema. */
@@ -175,7 +193,13 @@ export function emitFeature(options: EmitOptions): EmitResult {
     .map((c) => c.id);
 
   const usage = collectUsage(emittable, byElementId);
-  seedFromRecords(usage, options.existingPageObjects ?? [], byElementId, plan.featureId, logger);
+  const staleLocators = seedFromRecords(
+    usage,
+    options.existingPageObjects ?? [],
+    byElementId,
+    plan.featureId,
+    logger,
+  );
   const pageObjects = buildPageObjects(usage, dialect);
 
   const degraded: DegradedCase[] = [];
@@ -215,6 +239,7 @@ export function emitFeature(options: EmitOptions): EmitResult {
     degraded,
     skippedDuplicates,
     pageObjects: [...pageObjects.values()].map((p) => p.spec.className).sort(),
+    staleLocators,
   };
 }
 
@@ -233,7 +258,8 @@ function seedFromRecords(
   byElementId: Map<string, ResolvedElement>,
   featureId: string,
   logger: Logger,
-): void {
+): StaleLocators[] {
+  const stale: StaleLocators[] = [];
   for (const record of records) {
     // Only pages this run is regenerating; a page nobody touched keeps its file.
     const entry = usage.get(record.pageId);
@@ -257,12 +283,20 @@ function seedFromRecords(
     }
 
     if (dropped.length > 0) {
+      stale.push({
+        className: record.className,
+        elementIds: [...dropped].sort(),
+        // The feature being generated right now is regenerating its own spec,
+        // so it is not the one left holding a dangling reference.
+        features: record.features.filter((f) => f !== featureId).sort(),
+      });
       logger.warn(
         { feature: featureId, pageObject: record.className, elements: dropped.sort() },
         'emit: dropped locators whose elements are no longer in the Screen Model; any spec still referencing them will fail the compile gate',
       );
     }
   }
+  return stale;
 }
 
 /** What each page object this run wrote now exposes. */

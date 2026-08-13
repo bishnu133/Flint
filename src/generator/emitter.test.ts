@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { StoredPageObject } from './page-object-store.js';
 import { emitFeature } from './emitter.js';
 import { playwrightPomDialect } from './dialects/playwright-pom.js';
 import type { Element, Page, ScreenModel } from '../schemas/screen-model.js';
@@ -643,5 +644,59 @@ describe('emitFeature — determinism', () => {
       model,
     );
     expect(result.pageObjects).toEqual(['LoginPage', 'LoginPage2']);
+  });
+});
+
+describe('emitFeature — stale stored page objects', () => {
+  /**
+   * The operator hit this on the first live run after `testIdAttribute`
+   * changed: `flint generate cart` failed the compile gate on errors in
+   * `tests/login.spec.ts` — a file that run never touched — and the message
+   * said "This is a Flint bug". It was not a bug; the Screen Model had changed
+   * under page objects `login` generated, and Flint already knew which feature
+   * owned them.
+   */
+  function emitCart(existingPageObjects: StoredPageObject[]) {
+    return emitFeature({
+      plan: { ...plan([testCase({})]), featureId: 'cart' },
+      model: MODEL,
+      dialect: playwrightPomDialect,
+      title: 'Cart',
+      existingPageObjects,
+    });
+  }
+
+  it('reports which features own locators it had to drop', () => {
+    const result = emitCart([
+      {
+        className: 'LoginPage',
+        pageId: 'page-login',
+        features: ['login', 'cart'],
+        // Ids from before the Screen Model changed — no longer resolvable.
+        elementIds: ['el-old-a', 'el-old-b'],
+        actions: [],
+      },
+    ]);
+
+    expect(result.staleLocators).toHaveLength(1);
+    const stale = result.staleLocators[0]!;
+    expect(stale.className).toBe('LoginPage');
+    expect(stale.elementIds).toEqual(['el-old-a', 'el-old-b']);
+    // `cart` is regenerating its own spec, so it is not the one left holding a
+    // dangling reference — only `login` needs regenerating first.
+    expect(stale.features).toEqual(['login']);
+  });
+
+  it('reports nothing when every stored locator still resolves', () => {
+    const result = emitCart([
+      {
+        className: 'LoginPage',
+        pageId: 'page-login',
+        features: ['login'],
+        elementIds: ['el-user'],
+        actions: [],
+      },
+    ]);
+    expect(result.staleLocators).toEqual([]);
   });
 });
