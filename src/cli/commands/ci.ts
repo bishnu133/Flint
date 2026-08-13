@@ -12,7 +12,8 @@ import { scanSuite } from '../../indexer/scan.js';
 import { indexPath, writeIndex } from '../../indexer/store.js';
 import { listFeatureIds, readFeatureSpec } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
-import { ownedSpecFiles, supersedeOwnGeneratedTests } from '../../planner/supersede.js';
+import { ownedSpecFiles } from '../../planner/supersede.js';
+import { hideSupersededTests, testsInOwnedSpecs } from '../../planner/hide-superseded.js';
 import { planHistoryCoverage, planPath, writePlan } from '../../planner/store.js';
 import type { ExemplarFile } from '../../planner/context-builder.js';
 import { emitBatch, type BatchFeature } from '../../generator/batch.js';
@@ -68,6 +69,7 @@ export function registerCi(program: Command): void {
     .option('--ready', 'skip tests tagged @needs-setup when verifying', false)
     .option('--no-verify', 'stop after generating; do not run the suite')
     .option('--json', 'print a machine-readable summary instead of prose', false)
+    .option('--allow-shrink', 'write even if the run ends with fewer tests than it started', false)
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: CiOptions) => {
       await runCi(opts);
@@ -83,6 +85,7 @@ interface CiOptions {
   ready: boolean;
   /** commander maps `--no-verify` onto this, defaulting to true. */
   verify: boolean;
+  allowShrink: boolean;
   json: boolean;
   verbose: boolean;
 }
@@ -91,7 +94,7 @@ interface CiOptions {
 interface CiSummary {
   ok: boolean;
   /** Where it stopped, when it stopped early. */
-  failedStage?: 'model' | 'plan' | 'gate' | 'verify';
+  failedStage?: 'model' | 'plan' | 'gate' | 'shrink' | 'verify';
   features: Array<{
     featureId: string;
     cases: number;
@@ -101,6 +104,13 @@ interface CiSummary {
   }>;
   filesWritten: number;
   gate: { ran: boolean; ok: boolean; errors: number };
+  /**
+   * Tests in the spec files this run owns, before and after.
+   *
+   * `after` dropping below `before` means the run deleted tests, which is the
+   * one failure a compile gate cannot see: an empty spec typechecks.
+   */
+  tests: { before: number; after: number };
   verify?: {
     total: number;
     passed: number;
@@ -149,6 +159,17 @@ async function runCi(opts: CiOptions): Promise<void> {
 
   say('');
   say(`Planning ${featureIds.length} feature(s): ${featureIds.join(', ')}`);
+
+  // Every spec file this run owns, and how many tests are in them right now.
+  // A full run rewrites these files, so this is the number the run must not
+  // silently reduce.
+  const baseline = scanSuite({ projectRoot, suiteDir: config.suiteDir, logger }).index;
+  const ownedByRun = new Set<string>();
+  for (const featureId of featureIds) {
+    for (const file of ownedSpecFiles(baseline, featureId)) ownedByRun.add(file);
+  }
+  const testsBefore = testsInOwnedSpecs(baseline, ownedByRun);
+
   for (const featureId of featureIds) {
     const spec = readFeatureSpec(projectRoot, config.kbDir, featureId);
     const scanned = scanSuite({
@@ -158,7 +179,11 @@ async function runCi(opts: CiOptions): Promise<void> {
       planHistory: planHistoryCoverage(projectRoot, { excludeFeature: spec.frontmatter.id }),
     }).index;
     const owned = ownedSpecFiles(scanned, spec.frontmatter.id);
-    const index = supersedeOwnGeneratedTests(scanned, spec.frontmatter.id);
+    // Hides the feature's own generated tests from BOTH places the planner sees
+    // them — the coverage map and the plain list of existing test titles. The
+    // second was the gap that let a run mark a whole plan duplicate and empty
+    // the spec it was regenerating.
+    const index = hideSupersededTests(scanned, spec.frontmatter.id);
 
     const result = await generatePlan({
       spec,
@@ -216,7 +241,35 @@ async function runCi(opts: CiOptions): Promise<void> {
     }),
     filesWritten: 0,
     gate: { ran: gate.ran, ok: gate.ok, errors: gate.errors.length },
+    tests: { before: testsBefore, after: testsAfter(batch) },
   };
+
+  // ---- refuse to shrink the suite ----------------------------------------
+  // A run that regenerates everything and ends up with fewer tests than it
+  // started with has deleted somebody's work. It happened: a planner that
+  // marked every case a duplicate took a 13-test suite down to 3 and the run
+  // reported "CI passed." The compile gate cannot catch this — an empty spec
+  // typechecks perfectly.
+  if (!opts.allowShrink && summary.tests.after < summary.tests.before) {
+    say('');
+    say(
+      `Refusing to write: this run would leave ${summary.tests.after} test(s) where the ` +
+        `suite has ${summary.tests.before}.`,
+    );
+    say('Nothing was written.');
+    if (batch.fullyDuplicated.length > 0) {
+      say('');
+      say(`Every case was marked a duplicate for: ${batch.fullyDuplicated.join(', ')}.`);
+      say('That empties the spec rather than extending it. Usually it means the');
+      say('planner was shown the very tests it was regenerating.');
+    }
+    say('');
+    say('Check the plans under .flint/plans, then either fix the feature spec or');
+    say('re-run with --allow-shrink if the suite really should get smaller.');
+    summary.failedStage = 'shrink';
+    finish(summary, opts, say);
+    return;
+  }
 
   if (!gate.ok) {
     // The whole batch is rejected together — the suite is untouched.
@@ -349,6 +402,13 @@ function finish(summary: CiSummary, opts: CiOptions, say: (line?: string) => voi
     say(summary.ok ? 'CI passed.' : `CI failed at the ${summary.failedStage ?? 'unknown'} stage.`);
   }
   if (!summary.ok) process.exitCode = 1;
+}
+
+/** Tests this batch will have written: live ones plus the degraded placeholders. */
+function testsAfter(batch: {
+  perFeature: Array<{ liveTests: number; degraded: unknown[] }>;
+}): number {
+  return batch.perFeature.reduce((sum, f) => sum + f.liveTests + f.degraded.length, 0);
 }
 
 function repairModel(

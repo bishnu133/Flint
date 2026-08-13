@@ -162,6 +162,20 @@ function fixPageObjects(
       ? 'Page objects already matched the new model — nothing needed rewriting.'
       : `Re-pointed ${applied.written} page object file(s); specs untouched.`,
   );
+  // A diverted file means the repair did NOT reach the page object the specs
+  // import: the operator's own version is still there, still pointing at the
+  // old UI. Reporting "re-pointed" without saying so would be a false all-clear
+  // — the suite compiles, and then fails at runtime for the original reason.
+  if (applied.diverted.length > 0) {
+    console.log('');
+    console.log('NOT applied to these — you have edited them, so your version was kept:');
+    for (const decision of applied.diverted) {
+      console.log(`  ${decision.path}   (ours written beside it as ${decision.targetPath})`);
+    }
+    console.log('Any test using them still addresses the old UI. Merge the changes you');
+    console.log('want from the .flint.ts copy, or delete your version and re-run.');
+    console.log('');
+  }
   console.log('The existing specs still compile against them.');
   console.log(`Screen Model updated: ${options.modelFile}`);
   console.log('');

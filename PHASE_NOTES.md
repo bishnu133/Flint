@@ -2296,3 +2296,96 @@ change to a shared page object flags every test of every feature that
 contributed to it, because nothing records which spec imports which page object.
 The Suite Index would need import edges to do better, and `scan.ts` is frozen.
 Recorded here rather than worked around.
+
+### The seventh instance: superseding hid the coverage map, not the test list
+
+Found in the operator's first live `flint ci` run (2026-08-13). The run reported
+success and deleted ten working tests:
+
+```
+Planning 3 feature(s): cart, example-login, login
+  cart: 8 case(s)
+  example-login: 8 case(s)
+  login: 4 case(s)
+Wrote 3 file(s) to e2e
+No new tests for: cart, login — every case was a duplicate.
+Tests: 3      <- the suite had 13
+CI passed.
+```
+
+**Cause.** `supersedeOwnGeneratedTests` removes a feature's own generated titles
+from `index.coverageMap`. The Context Builder renders the index in two places:
+"Coverage by feature id" (counts, from the map) and **"Existing tests (title —
+file)"**, which walks `index.specs[].testTitles` directly. The second list still
+carried every title superseding had just hidden, so the planner read cart's own
+five tests as prior art and marked all eight new cases `skipped-duplicate`. The
+emitter then wrote a spec with nothing in it.
+
+This is the same bug as the exemplar leak, one layer down, and the seventh time
+this class has appeared: **Flint reading its own previous output as somebody
+else's input.** Each time the fix has been to name one more channel through
+which the previous answer reaches the question.
+
+**Fix.** `src/planner/hide-superseded.ts` — `hideSupersededTests()` hides those
+titles from `specs` as well as from the coverage map. Scoped exactly: only
+titles the feature's own coverage claims, and only in **managed** files. Another
+feature's generated tests stay visible (real prior art), and a hand-edited file
+means a human owns those tests now, so they stay visible too. Wired into both
+`flint plan` and `flint ci`, so the two commands cannot disagree.
+
+Kept in a new module rather than inside `supersede.ts`, which is a frozen Phase 3
+file (rule 2). `plan.ts` changed by one line at the same wiring point Phase 5
+already extended.
+
+### `flint ci` now refuses to shrink the suite
+
+The fix above removes the known cause. The guard exists because there will be
+others: **no amount of prompt correctness should be load-bearing for not
+deleting somebody's tests.**
+
+Before planning, `ci` counts the tests in the spec files this run owns. After
+emitting, it counts what the batch will write (`liveTests + degraded` — both are
+`test()` calls, so the units match). If the second number is lower, it writes
+nothing and says so:
+
+```
+Refusing to write: this run would leave 3 test(s) where the suite has 13.
+Nothing was written.
+
+Every case was marked a duplicate for: cart, login.
+That empties the spec rather than extending it. Usually it means the
+planner was shown the very tests it was regenerating.
+```
+
+`--allow-shrink` overrides it, for when the suite genuinely should get smaller.
+`failedStage: 'shrink'` and `tests: { before, after }` are in the `--json`
+summary.
+
+The compile gate cannot catch this: **an empty spec typechecks perfectly.** That
+is why the guard counts tests rather than trusting the gate, and why it runs
+before the write rather than after the verify.
+
+### Drift repair now admits when it did not apply
+
+The same run hit a page object the operator had edited by hand. The writer
+correctly kept their version and wrote ours beside it as
+`inventory-html.page.flint.ts` — and `--fix-page-objects` still printed
+"Re-pointed 2 page object file(s)" and "The existing specs still compile against
+them". Both true, and together misleading: the specs import the *original*,
+which still addresses the old UI. It compiles and then fails at runtime for the
+reason the repair claimed to have fixed.
+
+It now names diverted files explicitly and says the tests using them still
+address the old UI.
+
+### What the live run got right
+
+Worth recording, because these were the things most likely to be wrong:
+
+- `explore --diff` on an unchanged app: `No changes.`, exit 0. No false drift.
+- The drift report named 13 of 13 tests as breaking for a single changed
+  element. That looked like over-reporting and is not: every test in the suite
+  signs in through `HomePage`, so a broken login button really does break all of
+  them.
+- `--fix-page-objects` re-pointed the page objects, left every spec byte
+  identical, updated the model, and `flint verify` then passed 7/7 that ran.

@@ -10,11 +10,8 @@ import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { scanSuite } from '../../indexer/scan.js';
 import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
-import {
-  countSuperseded,
-  ownedSpecFiles,
-  supersedeOwnGeneratedTests,
-} from '../../planner/supersede.js';
+import { countSuperseded, ownedSpecFiles } from '../../planner/supersede.js';
+import { hideSupersededTests } from '../../planner/hide-superseded.js';
 import { renderPlan } from '../../planner/plan-renderer.js';
 import {
   formatPlanSummary,
@@ -100,8 +97,12 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
   // this looks for.
   const owned =
     scanned === undefined ? new Set<string>() : ownedSpecFiles(scanned, spec.frontmatter.id);
+  // Hides those tests from BOTH places the planner sees them: the coverage map
+  // and the plain list of existing test titles the Context Builder renders. The
+  // second was still leaking, which is how a run marked every case a duplicate
+  // and emptied the spec it was regenerating.
   const index =
-    scanned === undefined ? undefined : supersedeOwnGeneratedTests(scanned, spec.frontmatter.id);
+    scanned === undefined ? undefined : hideSupersededTests(scanned, spec.frontmatter.id);
 
   if (superseded > 0) {
     logger.info(
