@@ -16,6 +16,7 @@ import {
 } from '../../verifier/report.js';
 import { mayBeAppDefect } from '../../verifier/classifier.js';
 import { repairFailures, type RepairSummary } from '../../verifier/repair-runner.js';
+import { collisionAdvice } from '../../verifier/isolation.js';
 
 /**
  * `flint verify` — run the generated suite and report what happened.
@@ -75,6 +76,9 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
   const outcome = runSuite({
     suiteRoot,
     logger,
+    // The suite reads BASE_URL, so `flint verify` honours a changed config
+    // without the suite needing to be regenerated first.
+    env: { BASE_URL: config.baseUrl },
     ...(opts.feature !== undefined ? { grep: `@feature:${opts.feature}` } : {}),
     ...(opts.ready ? { grepInvert: '@needs-setup' } : {}),
   });
@@ -91,6 +95,7 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
   // every failure is `env` and `isRepairable` refuses it anyway, but stopping
   // here makes the reason visible instead of buried in per-test skips.
   const repairs: RepairSummary[] = [];
+  const flaky: string[] = [];
   let finalOutcome = outcome;
   if (opts.repair && health.healthy) {
     // The deterministic selector retry always runs. A model is consulted only
@@ -108,6 +113,7 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
       role: undefined,
       logger,
       repairs,
+      flaky,
       ...(llm !== undefined ? { llm } : {}),
     });
   } else if (opts.repair) {
@@ -158,6 +164,15 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
     console.log('');
     console.log(`${report.summary.flaky} test(s) passed only on retry and are marked flaky.`);
     console.log('Nothing in the code changed between attempts, so repair cannot help them.');
+  }
+
+  // Tests that only fail in company are a suite problem, not a test problem,
+  // and the fix is different in kind — so they get their own section with the
+  // two remedies rather than a line in the failure list.
+  const advice = collisionAdvice(flaky);
+  if (advice.length > 0) {
+    console.log('');
+    for (const line of advice) console.log(line);
   }
 
   if (repairs.length > 0) {

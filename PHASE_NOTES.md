@@ -1717,3 +1717,96 @@ than the code. `deps().rerun` returned a fixed `failing()` whose class is
 — and iteration 2 silently switched onto the deterministic path. The fake now
 preserves the failure class the test still has, which is what a real re-run
 reports.
+
+## Phase 5 completed (2026-08-13)
+
+Three gaps remained against the master plan's Phase 5 build list. All three were
+things that looked done and were not.
+
+### The fixme fallback was generated but never written
+
+`repairHistoryComment()` had existed since 5.4 and produced a good comment
+block. Nothing ever put it in a file. A test repair could not fix stayed exactly
+as it was, and the only record was a JSON report a user may never open.
+
+`fixme.ts` now converts `test('title', …)` to `test.fixme('title', …)` with the
+block above it, and `repairFailures` calls it for every test repair gave up on.
+
+**Idempotence is the requirement, not a nicety.** Run it twice and a naive
+version stacks comment blocks and rewrites `test.fixme` into
+`test.fixme.fixme`, compounding on every verify until the file no longer parses
+— silent for several runs, then baffling. The same shape as the bug that
+appeared four times in Phase 4. So the block carries `@flint:repair-failed` and
+a marked test is left alone.
+
+The idempotence check looks only at the comment block *immediately preceding*
+the call, not the whole file. Checking the whole file would refuse to mark a
+second failing test in a file that already had one marked — a test that then
+silently loses its explanation. That case has its own test.
+
+**Matching is exact-title.** `test('signs in')` must not be hit when marking
+`test('signs in with valid credentials')`, or repair disables the wrong test.
+Also tested: `test.describe('works')` is not mistaken for `test('works')`.
+
+**The marker does not change this run's report.** Re-badging the result `fixme`
+would drop the test out of the pass-rate denominator, and a suite could reach
+100% by giving up on everything. What happened in this run is that the test
+failed. The marker is what happens to the *next* run.
+
+### Nothing established a test was broken before patching it
+
+The scaffolded Playwright config is `fullyParallel: true` with `retries: 0`
+outside CI, so Playwright's own flaky detection never fires on a local run.
+Nothing distinguished "this test is wrong" from "this test was disturbed by
+another test running beside it" — and those need opposite responses. Patching
+the second kind corrupts a test that was correct.
+
+Every failing test is now re-run **on its own, unchanged**, before repair is
+considered. Pass-on-retry without a code change is `flaky` by the master plan's
+own definition, and flaky tests are not repaired. That satisfies the flaky
+detection exit criterion in a way that does not depend on retries being enabled.
+
+The cost is one scoped Playwright run per failing test — cheap next to a model
+call, and far cheaper than a suite repaired into agreeing with whatever happened
+to run first.
+
+`rerunScoped` returns `undefined` when the run did not happen or the title
+matched nothing, and `isolationVerdict` maps that to `inconclusive`, on which
+repair proceeds. "We could not find out" must never collapse into "it is fine".
+
+**The collision advice names both causes.** Shared state is the common one
+(remedies: `--workers=1` to confirm, then unique factory data or
+`test.describe.serial`). Session expiry mid-run produces the identical signature
+— everything after a point fails, each passes alone — and would be misdiagnosed
+by shared-state advice alone, so the report names it and says to check whether
+the failures cluster at the end of the run. That is the master plan's
+"auth expiry mid-run" scenario, handled as a diagnosis rather than an automatic
+recovery.
+
+### The suite did not receive the configured base URL
+
+`runSuite` accepted an `env` option that the CLI never passed. The scaffolded
+`playwright.config.ts` reads `process.env.BASE_URL ?? '<baked-in default>'`, so
+a changed `flint.config.ts` was ignored until the suite was regenerated.
+`flint verify` now passes `BASE_URL` from config.
+
+### Phase 5 build list, verified against the master plan
+
+| Item | State |
+| --- | --- |
+| Runner, scoped, env from config | done |
+| Failure classifier, trace/screenshot paths attached | done (`artifacts`, populated by the report parser) |
+| Repair loop, max 2 LOCKED, selector retry before any LLM call | done |
+| Fixme fallback with comment block | done (this section) |
+| RunReport writer | done |
+| `flint verify [--repair]` | done, plus `--feature`, `--ready`, `--no-llm`, `--no-health-check` |
+| Env failures detected pre-run, never "repaired" | done |
+| Zero infinite loops (iteration cap + wall clock) | done |
+| Flaky detection, not repaired | done (this section) |
+| Assertion mismatch surviving repair → possible app defect | done |
+| Data collisions → serial mode / factory uniqueness advice | done (this section) |
+| Auth expiry mid-run | diagnosed, not auto-recovered |
+| Post-repair pass rate ≥90% on golden set | **needs a live run** |
+
+The one remaining item is a measurement, not code. It needs a machine with a
+browser and network reach to the demo app.

@@ -2,8 +2,15 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { modelPath, readModel } from '../explorer/screen-model-store.js';
-import { repairTest, type ProposeRepairInput, type RepairOutcome } from './repair.js';
+import {
+  repairHistoryComment,
+  repairTest,
+  type ProposeRepairInput,
+  type RepairOutcome,
+} from './repair.js';
 import { proposeRepair } from './llm-repair.js';
+import { applyFixme } from './fixme.js';
+import { isolationVerdict, markFlaky } from './isolation.js';
 import { runSuite, type RunOutcome } from './runner.js';
 import type { TestResult } from '../schemas/run-report.js';
 import type { LLMProvider } from '../llm/types.js';
@@ -33,6 +40,8 @@ export interface RepairFailuresOptions {
   logger?: Logger;
   /** Collected for the CLI to print. */
   repairs: RepairSummary[];
+  /** Titles that failed in the suite but passed alone. Filled in by this call. */
+  flaky: string[];
   /**
    * Model-assisted repair. Omitted to run deterministic-only, in which case a
    * failure the selector retry cannot address is declined with that reason.
@@ -72,7 +81,24 @@ export async function repairFailures(options: RepairFailuresOptions): Promise<Ru
 
   const llm = options.llm;
   for (const failure of failures) {
-    const outcome = await repairOne(failure).catch((err: unknown) => {
+    // Establish the test is actually broken before anything patches it. A test
+    // that passes alone was disturbed by another test, not written wrong, and
+    // patching it would corrupt something that was correct.
+    const alone = rerunScoped(options.suiteRoot, failure, logger);
+    const verdict = isolationVerdict(alone);
+    if (verdict === 'flaky') {
+      const flaky = markFlaky(failure);
+      byTitle.set(key(flaky), flaky);
+      options.flaky.push(failure.title);
+      logger.info({ test: failure.title }, 'verify: passed alone — marked flaky, not repaired');
+      continue;
+    }
+
+    // The isolated run is fresher than the suite run, and its error is the one
+    // repair should work from.
+    const current = alone ?? failure;
+
+    const outcome = await repairOne(current).catch((err: unknown) => {
       // A provider failure — an expired key, a rate limit, a network drop — must
       // not throw away the run report for the tests that already ran. Record it
       // against this test and carry on with the next.
@@ -86,8 +112,18 @@ export async function repairFailures(options: RepairFailuresOptions): Promise<Ru
       } satisfies RepairOutcome;
     });
 
+    // Last resort: a test repair could not fix becomes `test.fixme` carrying
+    // the reason, so the failure is documented where a human will find it
+    // rather than only in a report file they may never open.
+    // The marker goes in the file, but this run's report still says `failed`.
+    // Re-badging it `fixme` here would drop the test out of the pass-rate
+    // denominator — a suite could reach 100% by giving up on everything. What
+    // happened in this run is that the test failed; the marker is what happens
+    // to the *next* run.
+    const marked = !outcome.repaired ? writeFixme(options.suiteRoot, outcome, logger) : undefined;
+
     byTitle.set(key(outcome.result), outcome.result);
-    options.repairs.push(summarise(outcome));
+    options.repairs.push(summarise(outcome, marked));
   }
 
   return { ...options.outcome, tests: [...byTitle.values()] };
@@ -149,10 +185,21 @@ function listPageObjects(suiteRoot: string): string[] {
  * a repair worked when it was never re-run would be the worst outcome here.
  */
 function rerunOne(suiteRoot: string, test: TestResult, logger: Logger): TestResult {
+  return rerunScoped(suiteRoot, test, logger) ?? test;
+}
+
+/**
+ * Re-run one test, or report that it could not be run.
+ *
+ * `undefined` is the honest answer when the run did not happen or the title
+ * matched nothing — never the test's old result dressed up as a fresh one. The
+ * isolation check needs that distinction: "passed alone" and "we could not find
+ * out" must not collapse into the same value.
+ */
+function rerunScoped(suiteRoot: string, test: TestResult, logger: Logger): TestResult | undefined {
   const outcome = runSuite({ suiteRoot, grep: escapeForGrep(test.title), logger });
-  if (!outcome.ran) return test;
-  const match = outcome.tests.find((t) => t.title === test.title);
-  return match ?? test;
+  if (!outcome.ran) return undefined;
+  return outcome.tests.find((t) => t.title === test.title);
 }
 
 /** Playwright's --grep is a regex; a test title is not. */
@@ -160,7 +207,38 @@ export function escapeForGrep(title: string): string {
   return title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function summarise(outcome: RepairOutcome): RepairSummary {
+/**
+ * Write the fixme marker and its comment block into the spec.
+ *
+ * Returns true when the file changed, false when it did not, and undefined when
+ * the file could not be read. Idempotence lives in `applyFixme`; this only has
+ * to not lie about what it did.
+ */
+function writeFixme(
+  suiteRoot: string,
+  outcome: RepairOutcome,
+  logger: Logger,
+): boolean | undefined {
+  const abs = resolve(suiteRoot, outcome.result.file);
+  if (!existsSync(abs)) {
+    logger.warn({ file: outcome.result.file }, 'repair: cannot mark fixme — spec file not found');
+    return undefined;
+  }
+  const source = readFileSync(abs, 'utf8');
+  const applied = applyFixme(source, outcome.result.title, repairHistoryComment(outcome));
+  if (!applied.changed) {
+    logger.info(
+      { test: outcome.result.title, reason: applied.reason },
+      'repair: fixme marker not written',
+    );
+    return false;
+  }
+  writeFileSync(abs, applied.source, 'utf8');
+  logger.info({ test: outcome.result.title, file: outcome.result.file }, 'repair: marked fixme');
+  return true;
+}
+
+function summarise(outcome: RepairOutcome, marked: boolean | undefined): RepairSummary {
   const detail: string[] = [];
   for (const attempt of outcome.attempts) {
     detail.push(`${attempt.iteration}. [${attempt.kind}] ${attempt.summary}`);
@@ -171,5 +249,6 @@ function summarise(outcome: RepairOutcome): RepairSummary {
   if (outcome.result.possibleAppDefect === true) {
     detail.push('assertion mismatch survived repair — check the application, not the test');
   }
+  if (marked === true) detail.push('marked test.fixme with the repair history');
   return { title: outcome.result.title, repaired: outcome.repaired, detail };
 }
