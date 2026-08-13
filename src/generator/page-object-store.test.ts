@@ -8,6 +8,7 @@ import {
   readPageObjectRecords,
   writePageObjectRecords,
   type StoredPageObject,
+  pruneToModel,
 } from './page-object-store.js';
 import { FlintError } from '../shared/errors.js';
 
@@ -126,5 +127,60 @@ describe('mergePageObjectRecords', () => {
     );
     expect(merged[0]?.elementIds).toEqual(['el-a']);
     expect(merged[0]?.actions).toEqual([{ kind: 'click', elementId: 'el-a' }]);
+  });
+});
+
+describe('pruneToModel', () => {
+  /**
+   * The record is a union across every feature and nothing ever removed from
+   * it. So ids that died when `testIdAttribute` changed stayed forever, were
+   * re-dropped on every `flint generate`, and logged the same warning every
+   * time — which is how the one warning that matters gets ignored.
+   */
+  it('drops element ids the Screen Model no longer has', () => {
+    const pruned = pruneToModel(
+      [
+        {
+          className: 'HomePage',
+          pageId: 'p1',
+          features: ['login'],
+          elementIds: ['el-live', 'el-dead'],
+          actions: [
+            { kind: 'click', elementId: 'el-live' },
+            { kind: 'click', elementId: 'el-dead' },
+          ],
+        },
+      ],
+      new Set(['el-live']),
+    );
+    expect(pruned[0]?.elementIds).toEqual(['el-live']);
+    expect(pruned[0]?.actions).toEqual([{ kind: 'click', elementId: 'el-live' }]);
+  });
+
+  it('drops a page object with nothing left — the page is gone', () => {
+    const pruned = pruneToModel(
+      [
+        {
+          className: 'GonePage',
+          pageId: 'p9',
+          features: ['login'],
+          elementIds: ['el-dead'],
+          actions: [],
+        },
+      ],
+      new Set(['el-live']),
+    );
+    expect(pruned).toEqual([]);
+  });
+
+  it('leaves a fully live record untouched', () => {
+    const record = {
+      className: 'HomePage',
+      pageId: 'p1',
+      features: ['login'],
+      elementIds: ['el-a', 'el-b'],
+      actions: [{ kind: 'click' as const, elementId: 'el-a' }],
+    };
+    expect(pruneToModel([record], new Set(['el-a', 'el-b']))).toEqual([record]);
   });
 });

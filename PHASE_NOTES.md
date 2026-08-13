@@ -2044,3 +2044,45 @@ just been emptied. The bug hid its own symptom.
 **What the operator has to do:** re-run `flint plan login` and
 `flint generate login`. The four cases will come back as `new` now that the
 exemplar no longer shows them.
+
+### The exemplar fix, verified live
+
+`flint plan login` after the fix:
+
+```
+Cases: 5   new 2, skipped-duplicate 3     (was: 4, all skipped-duplicate)
+```
+
+and the suite recovered:
+
+```
+Spec files: 3 (15 tests)   Features covered: 3   Flint-managed: 7
+```
+
+The three remaining duplicates are **correct**: `example-login` genuinely covers
+valid sign-in, invalid credentials, and the empty-credentials error, so `login`
+deferring to them is the deduplication working as intended. What came back as
+`new` is exactly what only `login` covers — the site root showing the form, and
+an already-signed-in visitor still being shown it. `forcedDuplicates: 0`, so the
+model made that call on real evidence rather than on Flint's own output.
+
+Prompt input tokens rose 21,698 → 31,052, which is the fix visible in the
+numbers: the exemplars are now two *other* features' specs instead of the
+feature's own.
+
+### Stale ids lived forever in the page-object record
+
+The same run showed the stale-locator warning firing again for element ids that
+died when `testIdAttribute` changed — on a run where nothing was wrong. The
+record is a union across every feature and nothing ever removed from it, so
+those ids would have been re-dropped and re-warned on **every** `flint generate`
+from now on.
+
+That warning is load-bearing: it is how a genuinely stale suite announces
+itself. A permanent copy of it is how the one that matters gets ignored.
+
+`pruneToModel` drops element ids the current Screen Model no longer contains,
+and page objects left with nothing. It runs **only after a successful write**,
+when the compile gate has just proved nothing in the suite still references
+them — pruning before that would delete the record that makes the failure
+diagnosable.

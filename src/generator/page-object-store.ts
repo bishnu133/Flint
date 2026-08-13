@@ -150,3 +150,32 @@ function splitOnce(key: string): [string, string] {
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
+
+/**
+ * Drop element ids the Screen Model no longer contains.
+ *
+ * The record is a union across every feature, and nothing ever removed from it.
+ * So an element id that died when the model changed — a `testIdAttribute`
+ * change re-hashes every id — stayed in the file forever, was re-dropped on
+ * every subsequent `flint generate`, and logged the same warning every time.
+ *
+ * That warning matters: it is how a genuinely stale suite announces itself. A
+ * copy of it on every run, permanently, is how the one that matters gets
+ * ignored. Pruning is only safe **after** a successful write, when the compile
+ * gate has just proved nothing in the suite still references them.
+ */
+export function pruneToModel(
+  records: StoredPageObject[],
+  liveElementIds: ReadonlySet<string>,
+): StoredPageObject[] {
+  return (
+    records
+      .map((record) => ({
+        ...record,
+        elementIds: record.elementIds.filter((id) => liveElementIds.has(id)),
+        actions: record.actions.filter((action) => liveElementIds.has(action.elementId)),
+      }))
+      // A page object with nothing left addresses a page that no longer exists.
+      .filter((record) => record.elementIds.length > 0)
+  );
+}

@@ -12,6 +12,7 @@ import { emitFeature, type StaleLocators } from '../../generator/emitter.js';
 import { resolveDialect } from '../../generator/dialects/index.js';
 import {
   mergePageObjectRecords,
+  pruneToModel,
   readPageObjectRecords,
   writePageObjectRecords,
 } from '../../generator/page-object-store.js';
@@ -230,9 +231,16 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
   const applied = applyWrites(suiteRoot, decisions, logger);
   // Written only after the files land, so a failed run cannot leave the record
   // claiming locators that were never emitted.
+  // Pruned only here, after the write succeeded and the gate passed: at this
+  // point nothing in the suite still references an element the model dropped,
+  // so carrying dead ids forward only produces a permanent false alarm.
+  const liveElementIds = new Set(model.pages.flatMap((p) => p.elements.map((e) => e.id)));
   writePageObjectRecords(
     projectRoot,
-    mergePageObjectRecords(storedPageObjects, result.pageObjectRecords),
+    pruneToModel(
+      mergePageObjectRecords(storedPageObjects, result.pageObjectRecords),
+      liveElementIds,
+    ),
   );
 
   console.log('');
