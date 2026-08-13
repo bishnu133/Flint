@@ -1,6 +1,6 @@
 import type { ScreenModel } from '../schemas/screen-model.js';
 import type { TestPlan } from '../schemas/test-plan.js';
-import { emitFeature, type DegradedCase, type EmittedFile } from './emitter.js';
+import { emitFeature, type DegradedCase, type EmittedFile, type StaleLocators } from './emitter.js';
 import { mergePageObjectRecords, type StoredPageObject } from './page-object-store.js';
 import type { Dialect } from './dialects/types.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
@@ -54,6 +54,16 @@ export interface BatchFeatureResult {
   pageObjects: string[];
   /** Tests that will actually run, after duplicates and degradation. */
   liveTests: number;
+  /**
+   * Locators dropped because the Screen Model no longer has their element.
+   *
+   * Inside a batch this is far less alarming than it is for a single
+   * `flint generate` — every feature is being re-emitted, so a spec still
+   * referencing a dropped locator is about to be rewritten too. It is carried
+   * out because drift mode regenerates page objects *without* the specs, and
+   * there it is exactly the thing that will fail the compile gate.
+   */
+  staleLocators: StaleLocators[];
 }
 
 export interface BatchEmitResult {
@@ -109,6 +119,7 @@ export function emitBatch(options: BatchEmitOptions): BatchEmitResult {
       skippedDuplicates: result.skippedDuplicates,
       pageObjects: result.pageObjects,
       liveTests: emitted - result.degraded.length,
+      staleLocators: result.staleLocators,
     });
     if (feature.plan.cases.length > 0 && emitted === 0) fullyDuplicated.push(feature.featureId);
   }

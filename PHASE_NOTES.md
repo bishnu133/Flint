@@ -2204,3 +2204,95 @@ a failed gate is worse than no CI step at all.
 
 Flags: `--feature <id...>`, `--repair`, `--no-llm`, `--ready`, `--no-verify`,
 `--json`.
+
+### 6.2 Drift mode — "which tests does this UI change break?"
+
+`flint explore --diff` already said what moved. On its own that is a wall of
+element ids: true, and nearly useless, because the operator's question is
+whether they have to do anything about it. Drift mode answers it by walking the
+change back through the suite.
+
+**The mapping** (`src/drift/impact.ts`, pure):
+
+```
+changed element -> page object that addresses it -> feature -> tests
+```
+
+Two independent links, because a suite is not always one Flint generated:
+
+- **record** — `.flint/page-objects.json` names the element ids each generated
+  page object exposes. Exact, and it carries feature ids, so it reaches test
+  titles through the coverage map.
+- **selector** — the Suite Index records the literal selector strings each page
+  object uses. This one works for page objects Flint never wrote, which is the
+  reason the index exists at all.
+
+The selector link deliberately **ignores `role` candidates**. The Phase 2 scan
+records a call's first string argument, and for `getByRole('button', { name: …
+})` that is the bare role. Matching on it would report every button in the suite
+as affected by any button changing; a false "47 tests break" is worse than a
+quiet miss, because the operator stops reading the report.
+
+**Severity is three-valued, and it is not decorative:**
+
+| severity   | when                                                | meaning                         |
+| ---------- | --------------------------------------------------- | ------------------------------- |
+| `breaks`   | a selector the page object **actually uses** is gone | it will not resolve             |
+| `likely`   | identity moved (role, name, test id, framePath)      | depends which candidate was used |
+| `possible` | element intact, `states` changed                     | a visibility assertion may flip |
+
+A lost selector the page object does not use is `likely`, not `breaks`. Added
+selectors and score nudges produce no drift entry at all.
+
+Added elements are reported as **coverage**, never as breakage. Changes that map
+to nothing in the suite are counted separately rather than listed.
+
+**One defect this found in the coverage map.** A test can appear twice: once
+from the scanned spec (title with the tags the emitter appended) and once from
+plan history (the planner's bare title). Unfolded, one test reads as "2 tests at
+risk". They are folded on the bare title via the emitter's own `splitTitleTags`,
+preferring the variant a spec file declares — that is the one the operator can
+open.
+
+**The repair: `--fix-page-objects`.** Re-emits page objects from the new model
+and **never touches a spec**. That is what makes it safe rather than merely
+convenient:
+
+- *The specs are the check.* They are not rewritten, so running the compile gate
+  over new page objects + untouched specs asks exactly the right question: do
+  the tests still work against the new addresses? If a locator disappeared the
+  gate fails, **nothing is written, and the Screen Model is not accepted either**
+  — accepting it would hide the drift. The message says to re-plan with
+  `flint ci`, and names the locators whose elements are gone.
+- *Targeting falls out of the write layer.* Every page object is re-emitted, but
+  `planWrites` reports byte-identical files as `unchanged` and never rewrites
+  them. Only genuinely affected files move, without this module guessing which
+  ones those are — a guess that would be wrong the moment a shared page object
+  was involved.
+
+On success the new model **is** written and the suite re-indexed, so the next
+`--diff` is clean and the page objects match the model on disk.
+
+**Exit codes.** `--diff` still exits non-zero on drift so CI can gate on it,
+except when `--fix-page-objects` resolved it and proved the suite still
+compiles.
+
+**Frozen-file note (rule 2).** All logic is in new files under `src/drift/`.
+`src/cli/commands/explore.ts` gained one flag and a four-line call inside the
+existing `--diff` block — the wiring point `diffModels`' own doc comment named
+for Phase 6 ("Phase 6 maps `changedElements` onto the Suite Index"). No schema
+changed: `DriftImpact` is an internal type, not a `src/schemas/` contract.
+`src/generator/batch.ts` (written in 6.1, this phase) gained `staleLocators` on
+its per-feature result, which drift needs and `ci` ignores.
+
+Tests: 21 (14 impact, 4 regenerate, 3 end-to-end). The end-to-end ones run the
+real compile gate against a stubbed `@playwright/test` installed under the
+suite's `node_modules` — installed rather than import-rewritten, because drift
+mode emits the files itself and a missing package would make the gate *skip*,
+which would make the refusal test pass for the wrong reason.
+
+**Open question (not blocking).** Test-level precision stops at the feature: a
+change to a shared page object flags every test of every feature that
+contributed to it, because nothing records which spec imports which page object.
+The Suite Index would need import edges to do better, and `scan.ts` is frozen.
+Recorded here rather than worked around.
