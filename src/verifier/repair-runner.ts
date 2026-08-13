@@ -2,9 +2,11 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { modelPath, readModel } from '../explorer/screen-model-store.js';
-import { repairTest, type RepairOutcome } from './repair.js';
+import { repairTest, type ProposeRepairInput, type RepairOutcome } from './repair.js';
+import { proposeRepair } from './llm-repair.js';
 import { runSuite, type RunOutcome } from './runner.js';
 import type { TestResult } from '../schemas/run-report.js';
+import type { LLMProvider } from '../llm/types.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
 
 /**
@@ -31,6 +33,17 @@ export interface RepairFailuresOptions {
   logger?: Logger;
   /** Collected for the CLI to print. */
   repairs: RepairSummary[];
+  /**
+   * Model-assisted repair. Omitted to run deterministic-only, in which case a
+   * failure the selector retry cannot address is declined with that reason.
+   */
+  llm?: {
+    provider: LLMProvider;
+    /** `config.models.repair`. */
+    modelId: string;
+    /** `config.tokenBudgets.repair`. */
+    tokenBudget: number;
+  };
 }
 
 /**
@@ -57,8 +70,30 @@ export async function repairFailures(options: RepairFailuresOptions): Promise<Ru
   const byTitle = new Map<string, TestResult>();
   for (const test of options.outcome.tests) byTitle.set(key(test), test);
 
+  const llm = options.llm;
   for (const failure of failures) {
-    const outcome = repairTest({
+    const outcome = await repairOne(failure).catch((err: unknown) => {
+      // A provider failure — an expired key, a rate limit, a network drop — must
+      // not throw away the run report for the tests that already ran. Record it
+      // against this test and carry on with the next.
+      const detail = err instanceof Error ? err.message : String(err);
+      logger.warn({ test: failure.title, err: detail }, 'repair: aborted for this test');
+      return {
+        result: failure,
+        attempts: [],
+        repaired: false,
+        gaveUpBecause: `repair could not run: ${detail}`,
+      } satisfies RepairOutcome;
+    });
+
+    byTitle.set(key(outcome.result), outcome.result);
+    options.repairs.push(summarise(outcome));
+  }
+
+  return { ...options.outcome, tests: [...byTitle.values()] };
+
+  async function repairOne(failure: TestResult): Promise<RepairOutcome> {
+    return repairTest({
       test: failure,
       model,
       logger,
@@ -72,14 +107,23 @@ export async function repairFailures(options: RepairFailuresOptions): Promise<Ru
         },
         pageObjectFiles: () => listPageObjects(options.suiteRoot),
         rerun: (test) => rerunOne(options.suiteRoot, test, logger),
+        ...(llm !== undefined
+          ? {
+              proposeRepair: (input: ProposeRepairInput) =>
+                proposeRepair({
+                  test: input.test,
+                  model: input.model,
+                  files: input.files,
+                  provider: llm.provider,
+                  modelId: llm.modelId,
+                  tokenBudget: llm.tokenBudget,
+                  logger,
+                }),
+            }
+          : {}),
       },
     });
-
-    byTitle.set(key(outcome.result), outcome.result);
-    options.repairs.push(summarise(outcome));
   }
-
-  return { ...options.outcome, tests: [...byTitle.values()] };
 }
 
 function key(test: TestResult): string {

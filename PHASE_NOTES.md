@@ -1636,3 +1636,84 @@ pre-installed Chromium (revision 1194) even though Playwright 1.62.1 wants
 that reported these as skipped were skipping for lack of a browser, not by
 design — worth knowing, since a skipped test that reads as a pass is the exact
 failure mode Phase 5 was built to avoid.
+
+### The LLM repair path
+
+The last Phase 5 component. It runs **only** after the deterministic selector
+retry has been tried and produced nothing, and what it proposes is checked in
+code before a byte is written.
+
+**Why this module is mostly validation.** A repair loop with a model in it is
+the most dangerous component in Flint, because its failure mode is a *passing
+test*. Everything else in the pipeline fails loudly when it is wrong. This one
+can quietly delete the thing a test was checking and report success — and a
+green suite is the one thing nobody investigates. The prompt asks the model to
+behave; `llm-repair.ts` enforces it. Only the second is load-bearing, and the
+tests exercise the enforcement, not the asking.
+
+Four rules, each with a test that feeds the module a proposal breaking it:
+
+1. **No invented selectors.** Every locator an edit introduces must be one the
+   explorer verified against the live page. A model-authored selector that was
+   never verified either matches nothing or — far worse — matches the wrong
+   element and passes. `verifiedExpressions()` renders the allowed set from the
+   Screen Model with both roots (`this.page.` and `page.`), because a locator
+   legitimately moves between a page object and a spec.
+2. **No weakened assertions.** Rewriting `expect('Welcome')` to
+   `expect('Error')` because the app produced "Error" makes the test pass and
+   destroys its only purpose — and that is precisely the case where the
+   application may genuinely be broken. Detected structurally: the received
+   value from Playwright's error appearing in the replacement but not the
+   original. That catches it however the edit is phrased.
+3. **No skipping.** `test.skip`, `test.fixme`, `test.only`, an empty `catch`,
+   or a net loss of `expect(` calls. All "make the red go away" moves. Flint
+   decides when to give up; the model does not.
+4. **Exact-match edits only.** Single-occurrence string replacements. An edit
+   whose `find` is absent is rejected (the file is not what we think it is); one
+   that matches twice is rejected (where it meant is ambiguous). A repair cannot
+   rewrite a file wholesale under cover of a fix.
+
+Rejection is all-or-nothing across the proposal. A partially applied repair
+leaves a file in a state neither Flint nor the model intended, which is strictly
+worse than the failing test we started with.
+
+**Failed model patches are reverted; failed selector swaps are not.** The two
+paths are cleaned up differently on purpose. A selector-retry swap put a
+*verified* selector in the file — the same class of thing the Emitter writes —
+and the next `flint generate` restores the canonical form. A model patch is
+arbitrary model-authored code, and leaving it behind in a suite that is *still
+failing* is worse than the failure. The snapshot that makes the revert possible
+is taken from the files as they stand at that iteration, so reverting undoes
+that patch and not the whole loop.
+
+**A provider failure is not a repair outcome.** `StructuredOutputError` — the
+model could not produce the right shape after the provider's own retries — is
+reported as "no usable proposal" and the loop moves on. An expired key or a rate
+limit is *not*: reporting that as "the model had no repair to offer" would hide
+the real problem behind a plausible one. It propagates, and `repairFailures`
+catches it per test so one broken repair cannot throw away the run report for
+every test that already ran.
+
+**Two facts kept distinct.** "No deterministic repair applies to a `timeout`
+failure" and "the selector retry ran out of candidates" are different things,
+and the report says which. Collapsing them would mislead whoever reads it.
+
+**Caps unchanged.** `MAX_REPAIR_ITERATIONS = 2` and the wall-clock budget cover
+model iterations exactly as they cover deterministic ones — the model does not
+get its own allowance.
+
+### CLI
+
+`flint verify --repair` now consults a model when one is available.
+`--no-llm` forces deterministic-only. A missing `ANTHROPIC_API_KEY` does **not**
+fail the command: the selector retry is the more valuable half and needs no
+model, so it degrades and says so.
+
+### A test-fake bug this caught
+
+The first version of the revert test failed, and the fake was at fault rather
+than the code. `deps().rerun` returned a fixed `failing()` whose class is
+`selector-not-found`, so a `timeout` test came back from its re-run reclassified
+— and iteration 2 silently switched onto the deterministic path. The fake now
+preserves the failure class the test still has, which is what a real re-run
+reports.

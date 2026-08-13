@@ -11,6 +11,7 @@ import {
 import { locatorExpression } from '../generator/dialects/playwright-pom.js';
 import type { SelectorStrategy } from '../shared/selector-ranking.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
+import type { RepairFile, ValidatedRepair } from './llm-repair.js';
 
 /**
  * The repair loop.
@@ -27,7 +28,16 @@ import { silentLogger, type Logger } from '../shared/logger.js';
  * Ordering is the other rule: `selector-not-found` retries deterministically
  * with the next verified candidate **before** any model is consulted. That
  * attempt is free, instant, and cannot invent a selector — the replacement was
- * confirmed against the live page during exploration.
+ * confirmed against the live page during exploration. Only when the
+ * deterministic path has nothing left to try does a model get asked, and what
+ * it proposes is checked in code before anything is written (`llm-repair.ts`).
+ *
+ * The two paths are also cleaned up differently, on purpose. A failed
+ * selector-retry swap is left in place: it put a *verified* selector in the
+ * file, which is the same class of thing the Emitter writes, and the next
+ * `flint generate` restores the canonical form. A failed model patch is
+ * **reverted**, because leaving unreviewed model-authored code in a suite that
+ * is still failing is worse than the failure.
  *
  * ## What this loop must never do
  *
@@ -65,6 +75,21 @@ export interface RepairOutcome {
   gaveUpBecause?: string;
 }
 
+/** Everything the model is asked about, and what it proposed back. */
+export interface ProposeRepairInput {
+  test: TestResult;
+  model: ScreenModel;
+  /** The spec and its page objects, as they stand right now. */
+  files: RepairFile[];
+}
+
+export interface ProposeRepairOutput {
+  /** A patch that survived every check. Absent when nothing is to be applied. */
+  applied?: ValidatedRepair;
+  /** Why there is no patch — a refusal worth putting in the report. */
+  rejected?: string;
+}
+
 /** What the loop needs from the outside world, injected so it stays testable. */
 export interface RepairDeps {
   /** Current contents of a suite file, or undefined when it is not there. */
@@ -75,6 +100,11 @@ export interface RepairDeps {
   rerun: (test: TestResult) => TestResult;
   /** Page-object files that might hold the failing locator, in search order. */
   pageObjectFiles: () => string[];
+  /**
+   * Ask a model for a repair. Omitted when no provider is configured, in which
+   * case the loop declines instead of pretending it tried something.
+   */
+  proposeRepair?: (input: ProposeRepairInput) => Promise<ProposeRepairOutput>;
   now?: () => number;
 }
 
@@ -94,7 +124,7 @@ export interface RepairOptions {
  * is left failing tells a human something true, while a test that was patched
  * into passing may not.
  */
-export function repairTest(options: RepairOptions): RepairOutcome {
+export async function repairTest(options: RepairOptions): Promise<RepairOutcome> {
   const logger = options.logger ?? silentLogger();
   const now = options.deps.now ?? (() => Date.now());
   const deadline = now() + (options.budgetMs ?? DEFAULT_PER_TEST_BUDGET_MS);
@@ -123,42 +153,43 @@ export function repairTest(options: RepairOptions): RepairOutcome {
       );
     }
 
-    if (!deservesSelectorRetry(current.failureClass ?? failureClass)) {
-      // The LLM path lands here. Until it exists, say so rather than pretend
-      // the loop tried something.
-      return giveUp(
-        current,
-        attempts,
-        `no deterministic repair applies to a ${current.failureClass ?? failureClass} failure`,
-      );
-    }
+    // The deterministic path first, always, and only when the failure class is
+    // one it can address. Anything else falls through to the model.
+    const thisClass = current.failureClass ?? failureClass;
+    const selectorApplies = deservesSelectorRetry(thisClass);
+    const patch = selectorApplies
+      ? planSelectorRetry(current, options.model, options.deps, tried)
+      : undefined;
 
-    const patch = planSelectorRetry(current, options.model, options.deps, tried);
-    if (patch === undefined) {
-      return giveUp(current, attempts, 'no other verified selector was available to try');
-    }
+    // Why the deterministic path produced nothing, said precisely — "it does
+    // not apply to this failure" and "it ran out of selectors" are different
+    // facts, and a human reading the report needs to know which.
+    const exhausted = selectorApplies
+      ? 'no other verified selector was available to try'
+      : `no deterministic repair applies to a ${thisClass} failure`;
 
-    tried.push(patch.triedValue);
-    options.deps.writeFile(patch.file, patch.patched);
-    logger.info(
-      { test: current.title, iteration, file: patch.file, selector: patch.triedValue },
-      'repair: retrying with the next verified selector',
-    );
+    const applied =
+      patch !== undefined
+        ? applySelectorRetry(patch, tried, options.deps, logger, current, iteration)
+        : await applyModelRepair(current, options, logger, iteration, exhausted);
+
+    if (applied.kind === 'declined') {
+      return giveUp(current, attempts, applied.because);
+    }
 
     const rerun = options.deps.rerun(current);
-    attempts.push({
-      iteration,
-      kind: 'selector-retry',
-      summary: patch.summary,
-      passed: rerun.status === 'passed',
-    });
+    const passed = rerun.status === 'passed';
+    attempts.push({ iteration, kind: applied.attemptKind, summary: applied.summary, passed });
 
-    if (rerun.status === 'passed') {
-      return {
-        result: { ...rerun, repairAttempts: attempts.length },
-        attempts,
-        repaired: true,
-      };
+    if (passed) {
+      return { result: { ...rerun, repairAttempts: attempts.length }, attempts, repaired: true };
+    }
+
+    // A model patch that did not work is reverted; a verified-selector swap is
+    // not. See the note at the top of this file.
+    if (applied.revert !== undefined) {
+      applied.revert();
+      logger.info({ test: current.title, iteration }, 'repair: reverted a model patch that failed');
     }
     current = { ...rerun, repairAttempts: attempts.length };
   }
@@ -168,6 +199,110 @@ export function repairTest(options: RepairOptions): RepairOutcome {
     attempts,
     `still failing after ${MAX_REPAIR_ITERATIONS} attempts (the locked maximum)`,
   );
+}
+
+/** One iteration's worth of work: either something was written, or it was not. */
+type AppliedPatch =
+  | { kind: 'declined'; because: string }
+  | {
+      kind: 'applied';
+      attemptKind: RepairAttempt['kind'];
+      summary: string;
+      /** Present only when the patch must be undone if the re-run fails. */
+      revert?: () => void;
+    };
+
+function applySelectorRetry(
+  patch: SelectorPatch,
+  tried: string[],
+  deps: RepairDeps,
+  logger: Logger,
+  test: TestResult,
+  iteration: number,
+): AppliedPatch {
+  tried.push(patch.triedValue);
+  deps.writeFile(patch.file, patch.patched);
+  logger.info(
+    { test: test.title, iteration, file: patch.file, selector: patch.triedValue },
+    'repair: retrying with the next verified selector',
+  );
+  return { kind: 'applied', attemptKind: 'selector-retry', summary: patch.summary };
+}
+
+/**
+ * Ask the model, check what it said, and write only if it survives.
+ *
+ * The snapshot taken before writing is what makes a failed model patch
+ * reversible. It is captured from the files as they are *now*, which includes
+ * any selector swap an earlier iteration made — reverting undoes this patch,
+ * not the whole loop.
+ */
+async function applyModelRepair(
+  test: TestResult,
+  options: RepairOptions,
+  logger: Logger,
+  iteration: number,
+  exhausted: string,
+): Promise<AppliedPatch> {
+  const { deps } = options;
+  if (deps.proposeRepair === undefined) {
+    return {
+      kind: 'declined',
+      because: `${exhausted}, and no model is configured for repair (set ANTHROPIC_API_KEY)`,
+    };
+  }
+
+  const files = editableFiles(test, deps);
+  if (files.length === 0) {
+    return { kind: 'declined', because: 'none of the files this test uses could be read' };
+  }
+
+  const proposal = await deps.proposeRepair({ test, model: options.model, files });
+  const applied = proposal.applied;
+  if (applied === undefined) {
+    return {
+      kind: 'declined',
+      because: `${exhausted}; ${proposal.rejected ?? 'the model proposed no repair'}`,
+    };
+  }
+
+  const snapshot = new Map(files.map((f) => [f.path, f.contents]));
+  for (const file of applied.files) deps.writeFile(file.path, file.contents);
+  logger.info(
+    { test: test.title, iteration, files: applied.files.map((f) => f.path) },
+    'repair: applied a model patch',
+  );
+
+  return {
+    kind: 'applied',
+    attemptKind: 'llm',
+    summary: applied.diagnosis,
+    revert: () => {
+      for (const file of applied.files) {
+        const original = snapshot.get(file.path);
+        if (original !== undefined) deps.writeFile(file.path, original);
+      }
+    },
+  };
+}
+
+/**
+ * The spec plus its page objects — the only files a repair may touch.
+ *
+ * Deliberately narrow. A repair that can edit anything in the suite is a repair
+ * that can break tests it was never asked to look at.
+ */
+function editableFiles(test: TestResult, deps: RepairDeps): RepairFile[] {
+  const paths = [test.file, ...deps.pageObjectFiles()];
+  const files: RepairFile[] = [];
+  const seen = new Set<string>();
+  for (const path of paths) {
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const contents = deps.readFile(path);
+    if (contents !== undefined) files.push({ path, contents });
+  }
+  return files;
 }
 
 interface SelectorPatch {

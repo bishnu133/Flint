@@ -1,7 +1,9 @@
 import { relative, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
-import { createLogger } from '../../shared/logger.js';
+import type { FlintConfig } from '../../schemas/config.js';
+import { AnthropicProvider } from '../../llm/index.js';
+import { createLogger, type Logger } from '../../shared/logger.js';
 import { checkHealth } from '../../verifier/health.js';
 import { runSuite } from '../../verifier/runner.js';
 import {
@@ -32,6 +34,7 @@ export function registerVerify(program: Command): void {
     .option('--feature <id>', 'run only this feature (matches its @feature: tag)')
     .option('--ready', 'skip tests tagged @needs-setup', false)
     .option('--repair', 'attempt to repair failing tests (max 2 iterations each)', false)
+    .option('--no-llm', 'repair with verified selectors only — never call a model')
     .option('--no-health-check', 'run even if the app does not answer first')
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: VerifyOptions) => {
@@ -44,6 +47,8 @@ interface VerifyOptions {
   feature?: string;
   ready: boolean;
   repair: boolean;
+  /** commander maps `--no-llm` onto this, defaulting to true. */
+  llm: boolean;
   /** commander maps `--no-health-check` onto this, defaulting to true. */
   healthCheck: boolean;
   verbose: boolean;
@@ -88,6 +93,14 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
   const repairs: RepairSummary[] = [];
   let finalOutcome = outcome;
   if (opts.repair && health.healthy) {
+    // The deterministic selector retry always runs. A model is consulted only
+    // when that has nothing left to try, and only if one is actually available
+    // — an absent key declines with a reason rather than failing the command.
+    const llm = opts.llm ? resolveRepairModel(config, logger) : undefined;
+    if (opts.repair && !opts.llm) {
+      console.log('');
+      console.log('Repairing with verified selectors only (--no-llm).');
+    }
     finalOutcome = await repairFailures({
       projectRoot,
       suiteRoot,
@@ -95,6 +108,7 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
       role: undefined,
       logger,
       repairs,
+      ...(llm !== undefined ? { llm } : {}),
     });
   } else if (opts.repair) {
     console.log('');
@@ -161,6 +175,32 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
   const rate = passRate(report.summary);
   if (!report.envHealthy || failures.length > 0 || rate === undefined) {
     process.exitCode = 1;
+  }
+}
+
+/**
+ * Build the repair provider, or explain why there isn't one.
+ *
+ * A missing API key must not fail `flint verify --repair`: the deterministic
+ * selector retry is the more valuable half and needs no model at all. So this
+ * degrades to deterministic-only and says so, rather than aborting a run that
+ * would have fixed something.
+ */
+function resolveRepairModel(
+  config: FlintConfig,
+  logger: Logger,
+): { provider: AnthropicProvider; modelId: string; tokenBudget: number } | undefined {
+  try {
+    return {
+      provider: new AnthropicProvider({ logger, logPrompts: config.debug.logPrompts }),
+      modelId: config.models.repair,
+      tokenBudget: config.tokenBudgets.repair,
+    };
+  } catch {
+    console.log('');
+    console.log('No ANTHROPIC_API_KEY, so repair will use verified selectors only.');
+    console.log('Export a key to let a model look at failures the selector retry cannot fix.');
+    return undefined;
   }
 }
 

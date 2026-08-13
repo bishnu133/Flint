@@ -302,9 +302,7 @@ describe('crawl — explorer.testIdAttribute', () => {
       config: config({ explorer: { testIdAttribute: 'data-qa' } }),
       startUrl: `${baseUrl}/qa`,
     });
-    const button = result.model.pages
-      .flatMap((p) => p.elements)
-      .find((e) => e.name === 'Checkout');
+    const button = result.model.pages.flatMap((p) => p.elements).find((e) => e.name === 'Checkout');
     expect(button?.testId).toBe('checkout');
     const testid = button?.selectorCandidates.find((c) => c.strategy === 'testid');
     expect(testid?.value).toBe('[data-qa="checkout"]');
@@ -319,9 +317,7 @@ describe('crawl — explorer.testIdAttribute', () => {
     // it keeps the regression legible: the element is still captured, it just
     // degrades to a weaker selector.
     const result = await crawl(context, { config: config(), startUrl: `${baseUrl}/qa` });
-    const button = result.model.pages
-      .flatMap((p) => p.elements)
-      .find((e) => e.name === 'Checkout');
+    const button = result.model.pages.flatMap((p) => p.elements).find((e) => e.name === 'Checkout');
     expect(button).toBeDefined();
     expect(button?.selectorCandidates.some((c) => c.strategy === 'testid')).toBe(false);
   }, 60_000);
