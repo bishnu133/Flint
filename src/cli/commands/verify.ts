@@ -1,4 +1,4 @@
-import { relative, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
 import type { FlintConfig } from '../../schemas/config.js';
@@ -17,6 +17,7 @@ import {
 import { mayBeAppDefect } from '../../verifier/classifier.js';
 import { repairFailures, type RepairSummary } from '../../verifier/repair-runner.js';
 import { collisionAdvice } from '../../verifier/isolation.js';
+import { displayPath } from '../hints.js';
 
 /**
  * `flint verify` — run the generated suite and report what happened.
@@ -185,7 +186,11 @@ async function runVerify(opts: VerifyOptions): Promise<void> {
   }
 
   console.log('');
-  console.log(`Report written to   ${relative(projectRoot, path) || path}`);
+  // Relative to the *shell's* directory, not the project's. These commands are
+  // usually run with --dir pointing somewhere else, and a path relative to the
+  // project is one the operator cannot paste into `cat` — which is exactly what
+  // happened the first time this line was read.
+  console.log(`Report written to   ${displayPath(path)}`);
 
   const rate = passRate(report.summary);
   if (!report.envHealthy || failures.length > 0 || rate === undefined) {
