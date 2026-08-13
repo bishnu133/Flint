@@ -19,11 +19,6 @@ const STUBS: StubSpec[] = [
     phase: 5,
     description: 'Run the generated Playwright suite',
   },
-  {
-    name: 'ci',
-    phase: 6,
-    description: 'Run the full pipeline headless (explore → index → plan → generate → verify)',
-  },
 ];
 
 export function registerStubs(program: Command): void {

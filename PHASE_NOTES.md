@@ -2159,3 +2159,48 @@ Flint checkout — a line that looks copy-pasteable and is not. Same shape as th
 earlier `--dir` problems: output that assumes cwd is the project. `displayPath`
 now prints relative only when the file is under the shell's own directory, and
 absolute otherwise.
+
+## Phase 6 — Integration, CI & Polish (in progress)
+
+### 6.1 `flint ci` — one batch, one gate
+
+The Phase 0 stub is replaced. `ci` is deliberately **not** a shell loop over the
+other commands, because that is exactly what failed twice on the operator's
+machine:
+
+```
+plan cart; generate cart
+  -> Generated code does not typecheck; nothing was written:
+     tests/login.spec.ts(30,36): Property 'elCf510ff0b994Select' does not exist
+```
+
+`flint generate <feature>` gates one feature against the suite **as it
+currently stands**. That is right for one feature and wrong for a full run:
+whichever feature goes first meets the others' un-regenerated specs. Reordering
+only moves the problem — there is no safe order, because the unit being checked
+is wrong.
+
+`emitBatch` (`src/generator/batch.ts`) emits every feature in memory, threading
+the page-object records through so two features sharing a page still share its
+locators, and returns one combined file set. `ci` gates that set **once** and
+writes only if it passes. The unit that must compile is the suite afterwards,
+and the Phase 4 guarantee — never leave a suite Flint knows does not compile —
+now holds across a multi-feature run instead of only within one.
+
+The order-independence is a property, not a hope: a test asserts that
+`[login, cart]` and `[cart, login]` produce byte-identical page objects and the
+same file list. If order still mattered, batching would only have moved the
+problem.
+
+**`ci` does not explore.** Exploration needs a browser, credentials and
+minutes, and a CI job that silently re-crawls a live application on every push
+is a surprise nobody asked for. `ci` uses the Screen Model it finds and refuses
+with an actionable message when there is none.
+
+**`--json` prints a stable machine-readable summary** — per-feature case counts,
+gate result, verify totals, pass rate, repair count, report path — and the exit
+code is non-zero on anything that is not a clean pass. A CI step that exits 0 on
+a failed gate is worse than no CI step at all.
+
+Flags: `--feature <id...>`, `--repair`, `--no-llm`, `--ready`, `--no-verify`,
+`--json`.
