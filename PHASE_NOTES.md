@@ -2337,33 +2337,37 @@ Kept in a new module rather than inside `supersede.ts`, which is a frozen Phase 
 file (rule 2). `plan.ts` changed by one line at the same wiring point Phase 5
 already extended.
 
-### `flint ci` now refuses to shrink the suite
+### `flint ci` refuses to erase a spec — and only that
 
-The fix above removes the known cause. The guard exists because there will be
-others: **no amount of prompt correctness should be load-bearing for not
+The supersede fix removes the known cause. The guard exists because there will
+be others: **no amount of prompt correctness should be load-bearing for not
 deleting somebody's tests.**
 
-Before planning, `ci` counts the tests in the spec files this run owns. After
-emitting, it counts what the batch will write (`liveTests + degraded` — both are
-`test()` calls, so the units match). If the second number is lower, it writes
-nothing and says so:
+The first version of this guard refused any net decrease, and the operator's
+very next run tripped it at 12 tests against 13 — one case had merged into
+another. That is not data loss. Planning is a model call; a plan varying by a
+case between runs is ordinary, and a guard that fires on ordinary variation is
+one people learn to pass the override to by reflex, which costs exactly the
+protection it was built for.
+
+So the line is **zero, not fewer**. A spec that holds tests and would hold none
+was not regenerated, it was erased — different in kind, and the failure that
+actually happened. `src/integrator/shrink-guard.ts` compares, per feature, the
+tests in the spec files it owns against what the batch would write:
 
 ```
-Refusing to write: this run would leave 3 test(s) where the suite has 13.
+Refusing to write: this run would erase spec files that currently have tests.
+  cart: e2e/tests/cart.spec.ts — 5 test(s) would be lost
 Nothing was written.
-
-Every case was marked a duplicate for: cart, login.
-That empties the spec rather than extending it. Usually it means the
-planner was shown the very tests it was regenerating.
 ```
 
-`--allow-shrink` overrides it, for when the suite genuinely should get smaller.
-`failedStage: 'shrink'` and `tests: { before, after }` are in the `--json`
-summary.
+A merely smaller plan writes, with a note saying so. `--allow-empty` overrides
+the refusal. `failedStage: 'shrink'`, `tests: { before, after }` and
+`emptiedSpecs` are in the `--json` summary.
 
-The compile gate cannot catch this: **an empty spec typechecks perfectly.** That
-is why the guard counts tests rather than trusting the gate, and why it runs
-before the write rather than after the verify.
+The compile gate cannot catch any of this: **an empty spec typechecks
+perfectly.** That is why the guard counts tests, and why it runs before the
+write rather than after the verify.
 
 ### Drift repair now admits when it did not apply
 

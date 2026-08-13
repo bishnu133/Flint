@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hideSupersededTests, testsInOwnedSpecs } from './hide-superseded.js';
+import { hideSupersededTests } from './hide-superseded.js';
 import type { SuiteIndex } from '../schemas/suite-index.js';
 
 /**
@@ -89,18 +89,5 @@ describe('hideSupersededTests', () => {
     expect(titlesIn(hideSupersededTests(mixed, 'cart'), 'e2e/tests/cart.spec.ts')).toEqual([
       'signs in @feature:login',
     ]);
-  });
-});
-
-describe('testsInOwnedSpecs', () => {
-  it('counts only the files named', () => {
-    expect(testsInOwnedSpecs(index(), new Set(['e2e/tests/cart.spec.ts']))).toBe(2);
-    expect(
-      testsInOwnedSpecs(index(), new Set(['e2e/tests/cart.spec.ts', 'e2e/tests/login.spec.ts'])),
-    ).toBe(3);
-  });
-
-  it('is zero when nothing is owned', () => {
-    expect(testsInOwnedSpecs(index(), new Set())).toBe(0);
   });
 });

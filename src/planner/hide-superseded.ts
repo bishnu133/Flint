@@ -60,18 +60,3 @@ export function hideSupersededTests(index: SuiteIndex, featureId: string): Suite
     ),
   };
 }
-
-/**
- * How many tests live in the spec files a set of features owns.
- *
- * The baseline for `ci`'s shrink guard: a full run regenerates these files, so
- * the count afterwards must not be lower than the count before unless the
- * operator said so.
- */
-export function testsInOwnedSpecs(index: SuiteIndex, ownedFiles: ReadonlySet<string>): number {
-  let total = 0;
-  for (const spec of index.specs) {
-    if (ownedFiles.has(spec.file)) total += spec.testTitles.length;
-  }
-  return total;
-}

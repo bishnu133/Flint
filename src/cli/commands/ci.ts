@@ -13,7 +13,7 @@ import { indexPath, writeIndex } from '../../indexer/store.js';
 import { listFeatureIds, readFeatureSpec } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
 import { ownedSpecFiles } from '../../planner/supersede.js';
-import { hideSupersededTests, testsInOwnedSpecs } from '../../planner/hide-superseded.js';
+import { hideSupersededTests } from '../../planner/hide-superseded.js';
 import { planHistoryCoverage, planPath, writePlan } from '../../planner/store.js';
 import type { ExemplarFile } from '../../planner/context-builder.js';
 import { emitBatch, type BatchFeature } from '../../generator/batch.js';
@@ -23,6 +23,7 @@ import { readPageObjectRecords } from '../../generator/page-object-store.js';
 import { applyWrites, planWrites } from '../../integrator/writer.js';
 import { runCompileGate } from '../../integrator/gate.js';
 import { discoverSuiteFiles } from '../../integrator/suite-files.js';
+import { emptiedSpecs, ownedByRun, testsInOwnedSpecs } from '../../integrator/shrink-guard.js';
 import { checkHealth } from '../../verifier/health.js';
 import { runSuite } from '../../verifier/runner.js';
 import {
@@ -69,7 +70,7 @@ export function registerCi(program: Command): void {
     .option('--ready', 'skip tests tagged @needs-setup when verifying', false)
     .option('--no-verify', 'stop after generating; do not run the suite')
     .option('--json', 'print a machine-readable summary instead of prose', false)
-    .option('--allow-shrink', 'write even if the run ends with fewer tests than it started', false)
+    .option('--allow-empty', 'write even if a spec that has tests would be left with none', false)
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: CiOptions) => {
       await runCi(opts);
@@ -85,7 +86,7 @@ interface CiOptions {
   ready: boolean;
   /** commander maps `--no-verify` onto this, defaulting to true. */
   verify: boolean;
-  allowShrink: boolean;
+  allowEmpty: boolean;
   json: boolean;
   verbose: boolean;
 }
@@ -107,10 +108,12 @@ interface CiSummary {
   /**
    * Tests in the spec files this run owns, before and after.
    *
-   * `after` dropping below `before` means the run deleted tests, which is the
-   * one failure a compile gate cannot see: an empty spec typechecks.
+   * Informational: a smaller plan is ordinary. What blocks the run is a spec
+   * going to zero — see `emptiedSpecs`.
    */
   tests: { before: number; after: number };
+  /** Features whose spec would have been erased. Non-empty means nothing was written. */
+  emptiedSpecs?: string[];
   verify?: {
     total: number;
     passed: number;
@@ -160,15 +163,10 @@ async function runCi(opts: CiOptions): Promise<void> {
   say('');
   say(`Planning ${featureIds.length} feature(s): ${featureIds.join(', ')}`);
 
-  // Every spec file this run owns, and how many tests are in them right now.
-  // A full run rewrites these files, so this is the number the run must not
-  // silently reduce.
+  // The tests in the spec files this run owns, before it touches anything.
+  // The guard below compares against it.
   const baseline = scanSuite({ projectRoot, suiteDir: config.suiteDir, logger }).index;
-  const ownedByRun = new Set<string>();
-  for (const featureId of featureIds) {
-    for (const file of ownedSpecFiles(baseline, featureId)) ownedByRun.add(file);
-  }
-  const testsBefore = testsInOwnedSpecs(baseline, ownedByRun);
+  const testsBefore = testsInOwnedSpecs(baseline, ownedByRun(baseline, featureIds));
 
   for (const featureId of featureIds) {
     const spec = readFeatureSpec(projectRoot, config.kbDir, featureId);
@@ -244,31 +242,51 @@ async function runCi(opts: CiOptions): Promise<void> {
     tests: { before: testsBefore, after: testsAfter(batch) },
   };
 
-  // ---- refuse to shrink the suite ----------------------------------------
-  // A run that regenerates everything and ends up with fewer tests than it
-  // started with has deleted somebody's work. It happened: a planner that
-  // marked every case a duplicate took a 13-test suite down to 3 and the run
-  // reported "CI passed." The compile gate cannot catch this — an empty spec
-  // typechecks perfectly.
-  if (!opts.allowShrink && summary.tests.after < summary.tests.before) {
+  // ---- refuse to erase a spec --------------------------------------------
+  // A planner that marked every case a duplicate took a 13-test suite down to 3
+  // and the run reported "CI passed." The compile gate cannot catch that — an
+  // empty spec typechecks perfectly — so this counts tests instead.
+  //
+  // The line is zero, not "fewer": planning is a model call, and a case merging
+  // into another between runs is ordinary. Blocking on that would just teach
+  // everyone to pass the override.
+  const erased = emptiedSpecs({
+    baseline,
+    emitted: batch.perFeature.map((f) => ({
+      featureId: f.featureId,
+      tests: f.liveTests + f.degraded.length,
+    })),
+  });
+  summary.emptiedSpecs = erased.map((e) => e.featureId);
+
+  if (!opts.allowEmpty && erased.length > 0) {
     say('');
-    say(
-      `Refusing to write: this run would leave ${summary.tests.after} test(s) where the ` +
-        `suite has ${summary.tests.before}.`,
-    );
+    say('Refusing to write: this run would erase spec files that currently have tests.');
+    for (const spec of erased) {
+      say(`  ${spec.featureId}: ${spec.files.join(', ')} — ${spec.tests} test(s) would be lost`);
+    }
+    say('');
     say('Nothing was written.');
     if (batch.fullyDuplicated.length > 0) {
       say('');
-      say(`Every case was marked a duplicate for: ${batch.fullyDuplicated.join(', ')}.`);
-      say('That empties the spec rather than extending it. Usually it means the');
-      say('planner was shown the very tests it was regenerating.');
+      say(`Every case came back a duplicate for: ${batch.fullyDuplicated.join(', ')}.`);
+      say('Usually that means the planner was shown the very tests it was regenerating.');
     }
     say('');
     say('Check the plans under .flint/plans, then either fix the feature spec or');
-    say('re-run with --allow-shrink if the suite really should get smaller.');
+    say('re-run with --allow-empty if those tests really should go.');
     summary.failedStage = 'shrink';
     finish(summary, opts, say);
     return;
+  }
+
+  // Not a refusal, but worth a sentence: nothing here is lost silently.
+  if (summary.tests.after < summary.tests.before) {
+    say('');
+    say(
+      `Note: this run writes ${summary.tests.after} test(s) where the suite had ` +
+        `${summary.tests.before}. No spec was erased; the plan is simply smaller.`,
+    );
   }
 
   if (!gate.ok) {
