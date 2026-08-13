@@ -30,7 +30,13 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<{
   const path = findConfigFile(cwd);
   if (path === undefined) {
     throw new ConfigError(`No flint config found in ${cwd}.`, {
-      hint: `Create a flint.config.ts (run \`flint init\`). Looked for: ${CONFIG_FILENAMES.join(', ')}`,
+      // Two causes, and the wrong-directory one is the likelier: Flint's own
+      // checkout has no config, so every command run from there lands here.
+      // Naming only `flint init` sends someone to scaffold a second project
+      // they did not want.
+      hint:
+        `Point at an existing project with \`--dir <path>\`, or run \`flint init\` to ` +
+        `create one here. Looked for: ${CONFIG_FILENAMES.join(', ')}`,
     });
   }
   return loadConfigFromPath(path);

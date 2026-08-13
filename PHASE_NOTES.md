@@ -1810,3 +1810,27 @@ a changed `flint.config.ts` was ignored until the suite was regenerated.
 
 The one remaining item is a measurement, not code. It needs a machine with a
 browser and network reach to the demo app.
+
+### The two-directory problem (found in the operator's first Phase 5 run)
+
+The testing guide assumed the Flint checkout and the project under test were the
+same directory. They are not: the tool lives in `~/…/Flint`, the demo project in
+`~/flint-demo`. `pnpm cli` is a script in Flint's own `package.json`, so running
+it from the demo project falls through to the registry and dies on the
+operator's `~/.npmrc`:
+
+```
+[ERROR] Failed to decode _auth as base64
+```
+
+Nothing to do with Flint, and nothing to do with npm credentials — the wrong
+working directory, reported by a tool three layers away from the cause. The
+guide now sets `DEMO` once and passes `--dir "$DEMO"` on every command, which
+was always supported and never documented.
+
+**The error message that should have caught it.** Running any command from
+Flint's own checkout produces `No flint config found`, and the hint said only
+"Create a flint.config.ts (run `flint init`)". That sends someone off to
+scaffold a second project they did not want, which is worse than saying nothing.
+It now offers `--dir <path>` first, because pointing at an existing project is
+the likelier intent. Tested, so it cannot quietly regress to the unhelpful form.

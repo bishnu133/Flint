@@ -4,7 +4,39 @@ A step-by-step for verifying the Verifier against saucedemo. Each part says what
 you should see, so a wrong result is recognisable rather than merely
 disappointing.
 
-Everything runs from the repo root unless stated otherwise.
+---
+
+## Where to run things — read this first
+
+Two directories are involved and they are not the same place:
+
+|                        | What it is                                                               | Example                        |
+| ---------------------- | ------------------------------------------------------------------------ | ------------------------------ |
+| **The Flint checkout** | The tool. Holds `package.json`, so `pnpm cli` only works here.           | `~/Documents/Initiative/Flint` |
+| **The demo project**   | The thing under test. Holds `flint.config.ts`, `kb/`, `e2e/`, `.flint/`. | `~/flint-demo`                 |
+
+**Every command in this guide runs from the Flint checkout**, and points at the
+demo project with `--dir`. Set this once per shell:
+
+```bash
+cd ~/Documents/Initiative/Flint
+export DEMO=~/flint-demo
+```
+
+`cd`-ing into the demo project and running `pnpm cli` there does **not** work —
+`cli` is a script in Flint's `package.json`, so pnpm falls through to the
+registry and fails on whatever your `~/.npmrc` says. If you see
+
+```
+[ERROR] Failed to decode _auth as base64
+```
+
+that is what happened: you were in the wrong directory. It is not a Flint error
+and not an npm credentials problem to go and fix.
+
+The related `WARN Issue while reading ~/.npmrc: Failed to replace env in config:
+${GITLAB_NPM_TOKEN}` is harmless here — that variable is not exported and
+nothing in this guide needs your private registry. Ignore it.
 
 ---
 
@@ -42,7 +74,7 @@ Behind your TLS-inspecting proxy, use `NODE_OPTIONS=--use-system-ca`. Never set
 
 Saucedemo marks its hooks `data-test`, not `data-testid`. Until this is set,
 Flint builds **no** test-id selectors for it and silently falls back to role and
-CSS. In `flint.config.ts`:
+CSS. In `$DEMO/flint.config.ts`:
 
 ```ts
 explorer: {
@@ -62,10 +94,10 @@ what fixes it.
 ## 2. Rebuild the pipeline from scratch
 
 ```bash
-pnpm cli explore
-pnpm cli index
-pnpm cli plan
-pnpm cli generate
+pnpm cli explore   --dir "$DEMO"
+pnpm cli index     --dir "$DEMO"
+pnpm cli plan      --dir "$DEMO"
+pnpm cli generate  --dir "$DEMO"
 ```
 
 **What to check as you go**
@@ -85,10 +117,10 @@ pnpm cli generate
 The generated suite is standalone — it does not depend on Flint at runtime.
 
 ```bash
-cd e2e
+cd "$DEMO/e2e"
 npm install
 npx playwright install chromium
-cd ..
+cd -
 ```
 
 ---
@@ -96,15 +128,15 @@ cd ..
 ## 4. Baseline: verify with no repair
 
 ```bash
-pnpm cli verify
+pnpm cli verify --dir "$DEMO"
 ```
 
 **Expect**
 
 - A health check line first. If saucedemo is unreachable you get a plain
   statement and every failure classified `env` — no test is blamed.
-- A summary with a pass rate expressed as a fraction *of what actually ran*.
-- `Report written to .flint/reports/<runId>.json`.
+- A summary with a pass rate expressed as a fraction _of what actually ran_.
+- `Report written to .flint/reports/<runId>.json` (under `$DEMO`).
 - Exit code 1 if anything failed, 0 if all green (`echo $?`).
 
 **The thing worth checking**: if nothing ran, the output must say so explicitly
@@ -117,11 +149,11 @@ and exit 1. "We could not run" must never read as "nothing failed".
 This is the half that needs no model and no key.
 
 ```bash
-pnpm cli verify --repair --no-llm
+pnpm cli verify --dir "$DEMO" --repair --no-llm
 ```
 
 With a green suite this does nothing. To see it work, break a selector on
-purpose — edit a page object in `e2e/pages/` and change one `data-test` value to
+purpose — edit a page object in `$DEMO/e2e/pages/` and change one `data-test` value to
 something that does not exist:
 
 ```ts
@@ -134,7 +166,7 @@ this.userNameInput = this.page.locator('[data-test="username-typo"]');
 Then:
 
 ```bash
-pnpm cli verify --repair --no-llm
+pnpm cli verify --dir "$DEMO" --repair --no-llm
 ```
 
 **Expect, in order**
@@ -157,7 +189,7 @@ tried. Open the spec and read it — that block is the deliverable.
 ## 6. Repair with the model
 
 ```bash
-pnpm cli verify --repair
+pnpm cli verify --dir "$DEMO" --repair
 ```
 
 Break something the selector retry cannot fix — reorder two steps in a spec, or
@@ -189,7 +221,7 @@ and says so.
 ## 7. Flaky / interference detection
 
 ```bash
-pnpm cli verify --repair
+pnpm cli verify --dir "$DEMO" --repair
 ```
 
 To provoke it, make two tests fight over the same state — for example, have one
@@ -209,10 +241,10 @@ test log out while another is mid-session, or point two tests at the same cart.
 
 ```bash
 # point at somewhere that is not there
-pnpm cli verify --repair
+pnpm cli verify --dir "$DEMO" --repair
 ```
 
-with `baseUrl` in `flint.config.ts` temporarily set to
+with `baseUrl` in `$DEMO/flint.config.ts` temporarily set to
 `https://localhost:9999`.
 
 **Expect**
@@ -233,7 +265,7 @@ The master plan's Phase 5 bar is **post-repair pass rate ≥90% on the golden
 set**. Run the full pipeline clean and read the pass-rate line:
 
 ```bash
-pnpm cli verify --repair
+pnpm cli verify --dir "$DEMO" --repair
 ```
 
 Send me the output. What I need to see is the summary block, the `Repairs:`
@@ -250,14 +282,14 @@ and-failed test as `failed` for exactly that reason.
 ## Quick reference
 
 ```bash
-pnpm cli verify                          # run and report, no changes
-pnpm cli verify --repair                 # selector retry, then a model
-pnpm cli verify --repair --no-llm        # verified selectors only
-pnpm cli verify --feature login          # one feature
-pnpm cli verify --ready                  # skip @needs-setup tests
-pnpm cli verify --no-health-check        # run even if the app is silent
-pnpm cli verify -v                       # verbose logging
+pnpm cli verify --dir "$DEMO"                          # run and report, no changes
+pnpm cli verify --dir "$DEMO" --repair                 # selector retry, then a model
+pnpm cli verify --dir "$DEMO" --repair --no-llm        # verified selectors only
+pnpm cli verify --dir "$DEMO" --feature login          # one feature
+pnpm cli verify --dir "$DEMO" --ready                  # skip @needs-setup tests
+pnpm cli verify --dir "$DEMO" --no-health-check        # run even if the app is silent
+pnpm cli verify --dir "$DEMO" -v                       # verbose logging
 ```
 
-Reports accumulate in `.flint/reports/`. They are plain JSON — diff two runs to
+Reports accumulate in `$DEMO/.flint/reports/`. They are plain JSON — diff two runs to
 see what changed.

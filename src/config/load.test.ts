@@ -40,6 +40,10 @@ describe('loadConfig', () => {
     expect(err).toBeInstanceOf(ConfigError);
     if (err instanceof ConfigError) {
       expect(err.hint).toMatch(/flint\.config\.ts/);
+      // The wrong-directory case is the likelier one — running any command from
+      // Flint's own checkout lands here — and offering only `flint init` sends
+      // someone off to scaffold a second project they did not want.
+      expect(err.hint).toMatch(/--dir/);
     }
   });
 
