@@ -56,3 +56,26 @@ export function countSuperseded(index: SuiteIndex, featureId: string): number {
   const after = supersedeOwnGeneratedTests(index, featureId).coverageMap[featureId]?.length ?? 0;
   return before - after;
 }
+
+/**
+ * Spec files this feature owns outright — the ones a re-plan will rewrite.
+ *
+ * Managed (so Flint wrote them and nobody has edited them since) *and* holding
+ * at least one title this feature's coverage map claims. Anything that reads
+ * the suite on a feature's behalf must skip these: they are the previous answer
+ * to the question being asked, not evidence about it.
+ *
+ * Computed from the index **before** superseding, because superseding is
+ * precisely what removes the titles this looks for.
+ */
+export function ownedSpecFiles(index: SuiteIndex, featureId: string): Set<string> {
+  const covered = new Set(index.coverageMap[featureId] ?? []);
+  const managed = new Set(index.managedFiles);
+  const owned = new Set<string>();
+  if (covered.size === 0) return owned;
+  for (const spec of index.specs) {
+    if (!managed.has(spec.file)) continue;
+    if (spec.testTitles.some((title) => covered.has(title))) owned.add(spec.file);
+  }
+  return owned;
+}

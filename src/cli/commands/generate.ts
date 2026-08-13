@@ -123,6 +123,32 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
   console.log(formatWritePlan(decisions, config.suiteDir));
 
   const emitted = plan.cases.length - result.skippedDuplicates.length;
+
+  // A plan whose every case is a duplicate emits an empty spec — and `update`
+  // on an existing file means those tests are about to be deleted. That is the
+  // exact shape of the most damaging bug in this project's history, so it is
+  // refused rather than warned about: nothing is written, and the operator is
+  // told how to get their coverage back.
+  const specPaths = new Set(result.files.filter((f) => f.kind === 'spec').map((f) => f.path));
+  const emptying =
+    emitted === 0
+      ? decisions.find((d) => specPaths.has(d.path) && d.outcome === 'updated')
+      : undefined;
+  if (emptying !== undefined) {
+    console.log('');
+    console.log(`REFUSING TO WRITE: every case in this plan is a duplicate, so`);
+    console.log(`${emptying.path} would be rewritten with no tests in it.`);
+    console.log('');
+    console.log('The tests that file already holds would be lost. Either:');
+    console.log(`  - re-run \`flint plan ${featureId}${dirSuffix(opts.dir)}\` — a re-plan`);
+    console.log("    supersedes this feature's own previous tests rather than deferring to them;");
+    console.log('  - or, if another feature genuinely covers this ground now, delete');
+    console.log(`    ${emptying.path} deliberately.`);
+    throw new FlintError('The plan would empty an existing spec file.', {
+      code: 'GENERATE',
+      hint: `Nothing was written. ${featureId} currently has ${plan.cases.length} case(s), all marked skipped-duplicate.`,
+    });
+  }
   if (result.degraded.length > 0) {
     console.log('');
     console.log('Not runnable as generated:');

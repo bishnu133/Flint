@@ -1990,3 +1990,57 @@ than keeping them. A page object must not outlive the UI it addresses, and
 keeping a locator for an element the explorer can no longer find would trade a
 loud compile error for a silent runtime failure. The gate blocking the write is
 the correct outcome — the defect was only ever the explanation.
+
+### The exemplar re-introduced what superseding hid (sixth instance)
+
+The run that looked like a clean success destroyed a feature's tests.
+
+```
+plan login   → superseded: 4 … Cases: 4, skipped-duplicate 4
+generate login → Tests: 0, update e2e/tests/login.spec.ts, Wrote 1 file(s)
+index        → Spec files: 2 (13 tests), Features covered: 2
+```
+
+Before the run: 1 spec file, 4 tests, `login` covered. After: `login` is gone
+and 13 tests remain (example-login 5 + cart 8). The four working login tests
+were overwritten with an empty file, and every line of output read as success.
+
+**How it got past the fix that exists for exactly this.**
+`supersedeOwnGeneratedTests` did its job — `superseded: 4` is in the log, and
+the titles were removed from the coverage map. But it only edits the
+**coverage map**. `readExemplars` then took the first two entries of
+`index.specs`, read `tests/login.spec.ts` **off disk in full**, and put it in
+the prompt as a house-style sample. The model saw four login tests sitting in
+the exemplar and marked its own four cases `skipped-duplicate`.
+`forcedDuplicates: 0` confirms the deterministic post-check did not do this —
+the model did, from evidence Flint handed it after deciding to hide that very
+evidence.
+
+Sixth appearance of the recurring class, and the second time in the same place:
+Phase 4 fixed the coverage-map door, and the same output walked back in through
+the exemplar door.
+
+**Two fixes, at different depths.**
+
+`ownedSpecFiles(index, featureId)` names the managed spec files whose titles
+this feature's coverage map claims — computed *before* superseding, since
+superseding is what removes the titles it looks for. `readExemplars` skips
+them and takes the next available spec instead. A hand-edited file is never
+"owned": a human's tests are genuine prior art, a re-plan should defer to them,
+and the file is a legitimate exemplar. That is the conservative direction.
+
+The second fix is the one that would have caught this regardless of cause:
+`flint generate` now **refuses** when a plan emits zero tests and its spec file
+already exists. Not a warning — nothing is written, and the message says the
+tests would be lost and how to recover. The existing "none of these tests will
+run" guard did not fire here because it checks `emitted > 0`, and this plan
+emitted nothing at all. A guard with a hole exactly the shape of the failure it
+was written for.
+
+**Why the compile gate passed this time.** The stale-locator errors from the
+previous run disappeared — because the file that referenced those locators had
+just been emptied. The bug hid its own symptom.
+
+**What the operator has to do:** re-run `flint plan login` and
+`flint generate login`. The four cases will come back as `new` now that the
+exemplar no longer shows them.

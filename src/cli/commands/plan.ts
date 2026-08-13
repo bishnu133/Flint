@@ -10,7 +10,11 @@ import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { scanSuite } from '../../indexer/scan.js';
 import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
-import { countSuperseded, supersedeOwnGeneratedTests } from '../../planner/supersede.js';
+import {
+  countSuperseded,
+  ownedSpecFiles,
+  supersedeOwnGeneratedTests,
+} from '../../planner/supersede.js';
 import { renderPlan } from '../../planner/plan-renderer.js';
 import {
   formatPlanSummary,
@@ -92,6 +96,10 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
     : undefined;
 
   const superseded = scanned === undefined ? 0 : countSuperseded(scanned, spec.frontmatter.id);
+  // Computed before superseding: it is superseding that removes the titles
+  // this looks for.
+  const owned =
+    scanned === undefined ? new Set<string>() : ownedSpecFiles(scanned, spec.frontmatter.id);
   const index =
     scanned === undefined ? undefined : supersedeOwnGeneratedTests(scanned, spec.frontmatter.id);
 
@@ -114,7 +122,7 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
     logger,
     ...(index !== undefined ? { index } : {}),
     ...(conventions !== undefined ? { conventions } : {}),
-    exemplars: readExemplars(projectRoot, config.suiteDir, index),
+    exemplars: readExemplars(projectRoot, config.suiteDir, index, owned),
   });
 
   const markdown = renderPlan({
@@ -179,16 +187,26 @@ function readConventions(projectRoot: string, kbDir: string): string | undefined
  * Picked from the Suite Index rather than by globbing, so the planner sees
  * files the indexer actually understood as tests. Capped at two: exemplars are
  * the first thing the token budget drops, and a third rarely adds signal.
+ *
+ * **Never the feature's own spec file.** Superseding removes this feature's
+ * previous tests from the coverage map so the planner does not treat them as
+ * prior art — and then this function handed the model the whole file anyway,
+ * tests and all, as a style sample. The model did exactly what the contents
+ * implied and marked every case `skipped-duplicate`, which emptied the spec on
+ * the next generate. Any other spec teaches house style just as well.
  */
 function readExemplars(
   projectRoot: string,
   suiteDir: string,
   index: { specs: Array<{ file: string }> } | undefined,
+  owned: ReadonlySet<string>,
 ): ExemplarFile[] {
   void suiteDir;
   if (index === undefined) return [];
   const exemplars: ExemplarFile[] = [];
-  for (const spec of index.specs.slice(0, 2)) {
+  for (const spec of index.specs) {
+    if (exemplars.length === 2) break;
+    if (owned.has(spec.file)) continue;
     const path = resolve(projectRoot, spec.file);
     if (!existsSync(path)) continue;
     exemplars.push({ path: spec.file, contents: readFileSync(path, 'utf8') });

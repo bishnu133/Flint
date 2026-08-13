@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { countSuperseded, supersedeOwnGeneratedTests } from './supersede.js';
+import { countSuperseded, ownedSpecFiles, supersedeOwnGeneratedTests } from './supersede.js';
 import type { SuiteIndex } from '../schemas/suite-index.js';
 
 function index(over: Partial<SuiteIndex> = {}): SuiteIndex {
@@ -109,5 +109,32 @@ describe('countSuperseded', () => {
     expect(countSuperseded(afterGenerate(), 'login')).toBe(2);
     expect(countSuperseded(afterGenerate(false), 'login')).toBe(0);
     expect(countSuperseded(index(), 'login')).toBe(0);
+  });
+});
+
+describe('ownedSpecFiles', () => {
+  /**
+   * The sixth appearance of "Flint reading its own previous output as somebody
+   * else's input". Superseding hid the feature's own tests from the coverage
+   * map, and then the exemplar loader handed the model the whole spec file
+   * anyway as a house-style sample. The model marked all four cases
+   * `skipped-duplicate` and the next generate emptied the file.
+   */
+  it('names the managed spec file a feature owns', () => {
+    expect([...ownedSpecFiles(afterGenerate(), 'login')]).toEqual(['e2e/tests/login.spec.ts']);
+  });
+
+  it('does not claim a hand-edited file', () => {
+    // A file a human has touched holds genuine prior art; a re-plan should
+    // defer to it, and it is a legitimate exemplar.
+    expect([...ownedSpecFiles(afterGenerate(false), 'login')]).toEqual([]);
+  });
+
+  it('does not claim another feature’s spec file', () => {
+    expect([...ownedSpecFiles(afterGenerate(), 'cart')]).toEqual([]);
+  });
+
+  it('is empty for a feature with no coverage yet', () => {
+    expect([...ownedSpecFiles(index(), 'login')]).toEqual([]);
   });
 });
