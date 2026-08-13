@@ -3,6 +3,7 @@ import {
   AnthropicProvider,
   describeRequestFailure,
   isTemperatureRejection,
+  maxTokensFor,
   validateStructured,
 } from './anthropic.js';
 import { z } from 'zod';
@@ -167,5 +168,25 @@ describe('AnthropicProvider temperature fallback', () => {
         meta: { stage: 'test', purpose: 'unrelated 400' },
       }),
     ).rejects.toThrow(/Anthropic API call failed/);
+  });
+});
+
+describe('maxTokensFor', () => {
+  it('gives every stage room for thinking as well as the answer', () => {
+    // 4096 truncated real TestPlans. On current models `max_tokens` caps
+    // thinking *plus* response text, and thinking is on by default, so a
+    // budget sized around the expected JSON leaves nothing to produce it.
+    expect(maxTokensFor(undefined, 'generate')).toBeGreaterThanOrEqual(16_000);
+  });
+
+  it('stays within what a non-streaming request can carry', () => {
+    // The models go to 128k, but above roughly 16k a non-streaming call risks
+    // an SDK HTTP timeout instead of a clean answer. Raising this ceiling
+    // further means moving to messages.stream(), not a bigger number here.
+    expect(maxTokensFor(undefined, 'plan')).toBeLessThanOrEqual(16_000);
+  });
+
+  it('lets a caller ask for something specific', () => {
+    expect(maxTokensFor(2048, 'plan')).toBe(2048);
   });
 });

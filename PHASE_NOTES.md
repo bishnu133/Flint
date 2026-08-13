@@ -1894,3 +1894,33 @@ hint is most needed.
 
 Four repetitions of the same mistake is a signal about the message, not about
 the person reading it.
+
+### The 4096-token output ceiling (found on the first live `flint plan`)
+
+`flint plan cart` failed with `stopReason: max_tokens` at 4096 output tokens.
+`DEFAULT_MAX_TOKENS = 4096` was set in Phase 0 and never revisited, and no
+caller ever overrode it — so every LLM call Flint has ever made was capped
+there.
+
+Two things make 4096 worse than it looks on current models: **adaptive thinking
+is on by default**, and `max_tokens` caps thinking *plus* response text
+together. A budget sized around the expected JSON leaves nothing for the
+reasoning that produces it. A TestPlan with several cases, each with steps and
+assertions, does not fit.
+
+Raised to 16k — the largest value that is safe on a non-streaming request.
+Above roughly that, the SDK risks an HTTP timeout rather than a clean answer.
+The models themselves go to 128k, which would need `messages.stream()`; that is
+a real option if plans ever outgrow 16k, and a bigger constant is not.
+
+**The error message named the wrong config key.** It said "Raise maxTokens for
+this call (see tokenBudgets in flint.config.ts)" — but `tokenBudgets` is the
+*prompt* budget and has no effect on the output ceiling. There is no config key
+that controls this. Naming the wrong one is worse than naming none: it sends
+someone to change a setting that cannot fix what they are looking at. The hint
+now says plainly that this is an output ceiling, that `tokenBudgets` will not
+change it, and that thinking shares the budget.
+
+No schema change was made. A per-stage output budget would be a reasonable
+config key, but it needs approval under rule 4 and the deterministic fix
+unblocks the operator now.

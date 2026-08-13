@@ -15,7 +15,32 @@ import type {
   TokenUsage,
 } from './types.js';
 
-const DEFAULT_MAX_TOKENS = 4096;
+/**
+ * Output-token ceiling for a single call.
+ *
+ * 4096 was far too low and truncated real TestPlans. Two things make it worse
+ * than it looks on current models: adaptive thinking is **on by default**, and
+ * `max_tokens` caps thinking *plus* response text together — so a budget sized
+ * around the expected JSON leaves nothing for the reasoning that produces it.
+ *
+ * 16k is the largest value that is safe without streaming; above roughly that,
+ * a non-streaming request risks an SDK HTTP timeout rather than a clean answer.
+ * The models themselves go to 128k, which would need `messages.stream()`.
+ */
+const DEFAULT_MAX_TOKENS = 16_000;
+
+/**
+ * Per-stage overrides, for stages whose output is structurally larger.
+ *
+ * A TestPlan grows with the number of cases and their steps; it is the one
+ * stage that has actually hit the ceiling. Everything else takes the default.
+ */
+const MAX_TOKENS_BY_STAGE: Record<string, number> = { plan: DEFAULT_MAX_TOKENS };
+
+/** The ceiling for a call: explicit request first, then stage, then default. */
+export function maxTokensFor(requested: number | undefined, stage: string): number {
+  return requested ?? MAX_TOKENS_BY_STAGE[stage] ?? DEFAULT_MAX_TOKENS;
+}
 
 export interface AnthropicProviderOptions {
   /** Overrides the ANTHROPIC_API_KEY env var. */
@@ -113,10 +138,20 @@ export class AnthropicProvider implements LLMProvider {
       );
 
       if (result.stopReason === 'max_tokens') {
+        const cap = maxTokensFor(req.maxTokens, req.meta.stage);
         throw new ProviderError(
-          `Model output was truncated at ${req.maxTokens ?? DEFAULT_MAX_TOKENS} output tokens (stage: ${req.meta.stage}) — the JSON is incomplete.`,
+          `Model output was truncated at ${cap} output tokens (stage: ${req.meta.stage}) — the JSON is incomplete.`,
           {
-            hint: 'Raise maxTokens for this call (see tokenBudgets in flint.config.ts) or shrink the prompt.',
+            // The old hint named `tokenBudgets`, which is the *prompt* budget
+            // and has no effect on this. Naming the wrong key is worse than
+            // naming none: it sends someone to change a setting that cannot fix
+            // what they are looking at.
+            hint:
+              `This is an output-token ceiling, not the prompt budget — ` +
+              `tokenBudgets in flint.config.ts will not change it. Current models ` +
+              `also spend this budget on thinking before the answer. Split the ` +
+              `feature spec into smaller features so each plan is shorter, or ` +
+              `report this so the per-stage ceiling can be raised.`,
           },
         );
       }
@@ -155,7 +190,7 @@ export class AnthropicProvider implements LLMProvider {
     const started = Date.now();
     const request = (withTemperature: boolean): Anthropic.MessageCreateParamsNonStreaming => ({
       model: params.model,
-      max_tokens: params.maxTokens ?? DEFAULT_MAX_TOKENS,
+      max_tokens: maxTokensFor(params.maxTokens, meta.stage),
       ...(withTemperature && params.temperature !== undefined
         ? { temperature: params.temperature }
         : {}),
