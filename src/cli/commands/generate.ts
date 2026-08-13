@@ -4,6 +4,7 @@ import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
 import { createLogger } from '../../shared/logger.js';
 import { FlintError } from '../../shared/errors.js';
+import { dirSuffix } from '../hints.js';
 import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { readFeatureSpec, listFeatureIds } from '../../planner/feature-spec.js';
 import { planPath, readPlan } from '../../planner/store.js';
@@ -61,7 +62,9 @@ async function runGenerate(feature: string | undefined, opts: GenerateOptions): 
       hint:
         available.length === 0
           ? `Write a spec under ${join(config.kbDir, 'features')}, then run \`flint plan <feature>\`.`
-          : `Usage: flint generate <feature>. Available: ${available.join(', ')}`,
+          : // See the note in plan.ts — a runnable line, not just a grammar.
+            `Usage: flint generate <feature>. Available: ${available.join(', ')}\n` +
+            `      Try: flint generate ${available[0]}${dirSuffix(opts.dir)}`,
     });
   }
 

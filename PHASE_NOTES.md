@@ -1870,3 +1870,27 @@ This is the third guide defect in three runs — two-directory conflation, then
 the missing feature argument, now the unverified regeneration. Each time the
 tool behaved correctly and the instructions did not. Worth recording as a
 pattern: the CLI's error messages have been carrying the guide.
+
+### Hints that are runnable, not merely correct
+
+`No feature id given` was hit four times across three sessions. The message was
+accurate — it stated the grammar and listed the available features — and it
+still did not get the operator to the right command, because reconstructing
+`flint plan cart --dir /Users/…/flint-demo` from `Usage: flint plan <feature>`
+is work.
+
+Both `plan` and `generate` now append a runnable line:
+
+```
+hint: Usage: flint plan <feature>. Available: cart, example-login, login
+      Try: flint plan cart --dir /Users/…/flint-demo
+```
+
+`dirSuffix` (`src/cli/hints.ts`) echoes the caller's own `--dir` and says
+nothing when the default is in use. Echoing it is the point: these commands are
+usually run from a different directory than the project they target, so a
+suggested command without `--dir` would be wrong in exactly the case where the
+hint is most needed.
+
+Four repetitions of the same mistake is a signal about the message, not about
+the person reading it.

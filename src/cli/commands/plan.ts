@@ -4,6 +4,7 @@ import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
 import { createLogger } from '../../shared/logger.js';
 import { FlintError } from '../../shared/errors.js';
+import { dirSuffix } from '../hints.js';
 import { AnthropicProvider } from '../../llm/index.js';
 import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { scanSuite } from '../../indexer/scan.js';
@@ -64,7 +65,11 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
       hint:
         available.length === 0
           ? `Write a spec under ${join(config.kbDir, 'features')} first.`
-          : `Usage: flint plan <feature>. Available: ${available.join(', ')}`,
+          : // A runnable line, not just a grammar. `plan` is per-feature and
+            // people reach for it expecting "do everything", so the hint shows
+            // the exact command including the --dir they already typed.
+            `Usage: flint plan <feature>. Available: ${available.join(', ')}\n` +
+            `      Try: flint plan ${available[0]}${dirSuffix(opts.dir)}`,
     });
   }
 
