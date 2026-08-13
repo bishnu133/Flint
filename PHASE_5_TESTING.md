@@ -93,22 +93,60 @@ what fixes it.
 
 ## 2. Rebuild the pipeline from scratch
 
+**`plan` and `generate` take a feature id.** They are per-feature commands —
+there is no "do them all" form, because `flint ci` (the chained pipeline) is
+Phase 6 and is still a stub. Running them bare gives you
+`No feature id given` and a list of what is available. That is the command
+working, not failing.
+
+List your features first:
+
 ```bash
-pnpm cli explore   --dir "$DEMO"
-pnpm cli index     --dir "$DEMO"
-pnpm cli plan      --dir "$DEMO"
-pnpm cli generate  --dir "$DEMO"
+ls "$DEMO/kb/features/"
 ```
+
+Then, for **each** feature (`cart`, `example-login`, `login` in your project):
+
+```bash
+pnpm cli explore  --dir "$DEMO"
+pnpm cli index    --dir "$DEMO"
+
+for f in cart example-login login; do
+  pnpm cli plan     "$f" --dir "$DEMO" || break
+  pnpm cli generate "$f" --dir "$DEMO" || break
+done
+
+pnpm cli index    --dir "$DEMO"   # re-index so the new tests are known
+```
+
+`plan` needs `ANTHROPIC_API_KEY`. The `|| break` stops on the first failure
+rather than marching on and generating from a plan that was never written.
 
 **What to check as you go**
 
-- `explore` — the summary should now report `testid` as the top strategy for most
-  elements. If you still see `role` and `css` everywhere, step 1 did not take.
-- `plan` — if it errors with "references elements that do not exist", your
-  Screen Model and plan are out of step; re-run `explore` then `plan` again.
+- `explore` — `verified unique selectors` should be close to `elements
+captured`. In your last run: 150 of 152.
+- `plan` — if it errors with "references elements that do not exist", the Screen
+  Model and the plan are out of step; re-run `explore`, then `plan` again.
 - `generate` — the compile gate must say it **ran**. A skipped gate is the bug
-  that hid for weeks in Phase 4. If it reports skipped, say so rather than
+  that hid for weeks in Phase 4. If it reports skipped, tell me rather than
   continuing.
+- `index` at the end — `Features covered` should equal the number of features
+  you generated. If it says 1 when you generated 3, something did not land.
+
+### Confirm the suite is actually rebuilt, not stale
+
+This is the check worth doing, because a stale suite still passes and looks like
+success. `verify` runs whatever is on disk; it has no way to know the generated
+code predates your current Screen Model.
+
+```bash
+grep -c 'data-test' "$DEMO"/e2e/pages/*.ts
+```
+
+After step 1 and a real regeneration, saucedemo page objects should be full of
+`data-test` selectors. If that count is 0, `generate` never ran against the new
+model and everything downstream is measuring the old suite.
 
 ---
 
@@ -286,6 +324,8 @@ pnpm cli verify --dir "$DEMO"                          # run and report, no chan
 pnpm cli verify --dir "$DEMO" --repair                 # selector retry, then a model
 pnpm cli verify --dir "$DEMO" --repair --no-llm        # verified selectors only
 pnpm cli verify --dir "$DEMO" --feature login          # one feature
+pnpm cli plan     login --dir "$DEMO"                  # feature id is required
+pnpm cli generate login --dir "$DEMO"                  # feature id is required
 pnpm cli verify --dir "$DEMO" --ready                  # skip @needs-setup tests
 pnpm cli verify --dir "$DEMO" --no-health-check        # run even if the app is silent
 pnpm cli verify --dir "$DEMO" -v                       # verbose logging

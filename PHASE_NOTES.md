@@ -1834,3 +1834,39 @@ Flint's own checkout produces `No flint config found`, and the hint said only
 scaffold a second project they did not want, which is worse than saying nothing.
 It now offers `--dir <path>` first, because pointing at an existing project is
 the likelier intent. Tested, so it cannot quietly regress to the unhelpful form.
+
+### Two more guide defects, and a stale-suite trap worth naming
+
+**`plan` and `generate` take a feature id.** The guide ran them bare, which
+produces `No feature id given` with a list of what is available. The command is
+right; the guide was wrong. They are per-feature by design — `flint ci`, the
+chained pipeline, is Phase 6 and still a stub, so there is deliberately no
+"do them all" form yet. The guide now loops over the feature ids explicitly,
+with `|| break` so a failed `plan` does not march on into `generate`.
+
+**A stale suite passes and looks like success.** In the operator's run,
+`explore` and `index` succeeded, `plan` and `generate` both errored out, and
+`verify` then reported 4/4 and 100%. All true — and all measuring the suite as
+it was generated *before* `testIdAttribute: 'data-test'` was set. Nothing was
+wrong, and nothing was learned either.
+
+`verify` runs whatever is on disk and has no way to know the generated code
+predates the current Screen Model. `generate` does warn when a plan's
+`screenModelVersion` differs from the model's, but that fires at generate time,
+which is exactly the step that did not run.
+
+Closing that properly is Phase 6's drift mode (`explore --diff` → which tests
+are affected), so this is not something to build now. The guide instead gives a
+one-line check with a definite answer:
+
+```
+grep -c 'data-test' "$DEMO"/e2e/pages/*.ts
+```
+
+Zero means `generate` never ran against the new model, and every number below it
+is about the old suite.
+
+This is the third guide defect in three runs — two-directory conflation, then
+the missing feature argument, now the unverified regeneration. Each time the
+tool behaved correctly and the instructions did not. Worth recording as a
+pattern: the CLI's error messages have been carrying the guide.
