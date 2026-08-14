@@ -11,7 +11,7 @@ That is what the knowledge base is for.
 ```
 kb/
 ├── features/          the only directory you must write in
-│   └── example.md
+│   └── _example.md    a worked example; `_` keeps it inert
 ├── app/
 │   ├── overview.md    what the app is, in a paragraph
 │   ├── roles.md       user roles and what each can do
@@ -29,6 +29,12 @@ nothing else blocks a run.
 
 One file per feature, in `kb/features/`. A spec is YAML frontmatter (the
 machine-readable contract) plus a markdown body (prose the planner reads).
+
+Files prefixed with `_` are skipped — the same convention as flow scripts. That
+is why the scaffolded `_example.md` is inert: every feature spec costs a planner
+call on every `flint ci`, and a brand-new project should not be paying to
+generate tests for an example nobody asked for. Copy it to `login.md` (or
+whatever you are covering), drop the underscore, and it runs.
 
 ```markdown
 ---

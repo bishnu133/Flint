@@ -28,8 +28,14 @@ describe('planScaffold', () => {
     const plan = planScaffold(initRoot);
     const rels = plan.map((f) => f.rel);
     expect(rels).toContain('flint.config.ts');
-    expect(rels).toContain(join('kb', 'features', 'example.md'));
+    // `_`-prefixed: the reader skips it, so a brand-new project does not spend
+    // a planner call on the shipped example before anyone has written a spec.
+    expect(rels).toContain(join('kb', 'features', '_example.md'));
     expect(rels).toContain(join('e2e', 'playwright.config.ts'));
+    // Dotted on the way out — npm renames `.gitignore` inside a published
+    // package, so the template is stored undotted.
+    expect(rels).toContain('.gitignore');
+    expect(rels).not.toContain('gitignore');
     // The suite needs its own manifest: `@playwright/test` is not a Flint
     // dependency, and without this `npm install` in e2e/ installs nothing, so
     // the compile gate cannot run and no test can execute.

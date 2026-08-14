@@ -2674,3 +2674,52 @@ Fix: scaffold a `.gitignore` covering `<suiteDir>/node_modules/`,
 `kb/features/example.md` ships with `flint init` and plans a full second login
 feature (`example-login`, 5 cases) alongside the operator's own `login`. Worth
 deleting from a real project; worth reconsidering as a scaffold default.
+
+### 6.8 The three frozen-file fixes, approved and made (2026-08-14)
+
+Operator approved all three from 6.7, plus removing the scaffolded example
+feature. Recorded here because rule 2 exists to make changes to completed
+phases visible, not to prevent them.
+
+**A. `pino` now writes to stderr** (`src/shared/logger.ts`, Phase 0). Verified
+end to end: `flint ci --json` piped into a JSON parser now parses, where before
+the log lines landed inside the object. Diagnostics on stderr, product on
+stdout — which also ends the interleaving, since two separately buffered writers
+no longer share one fd.
+
+**B. Repair re-stamps the managed marker** (`src/verifier/repair-runner.ts`,
+Phase 5). `restamp()` at both write sites — the repair loop's `writeFile`
+dependency and the `fixme` writer. It deliberately does **not** stamp an
+unmarked file: repair is allowed to fix a hand-written page object, but adopting
+one would let a later run overwrite somebody's own code without warning.
+
+This was the operator's stuck `inventory-html.page.ts`, and the ninth instance
+of the recurring class. `repair-runner.test.ts` (6 tests) pins it, including the
+inverse assertion — that an un-restamped file classifies as `hand-edited` — so
+the test still means something if `classify` ever changes.
+
+**C. `flint init` scaffolds a `.gitignore`.** Stored in the template tree as
+`gitignore` and dotted by `destinationFor()` on the way out, because npm renames
+`.gitignore` to `.npmignore` inside a published package — a template under its
+real name would work from a git clone and silently vanish for anyone who
+installed from the registry. It ignores `e2e/node_modules/`, the three Playwright
+output directories, `.DS_Store`, `.env`, and `.flint/auth/` — but **not** the
+rest of `.flint/`: the Screen Model and the plans are the record of what the
+suite was generated from, and reviewing a change to them is the point.
+
+**D. `kb/features/example.md` is now `_example.md`.** The `_`-prefix skip
+already existed for feature specs (`discoverFeatureFiles`), matching the
+flow-script convention — so this is a rename, not a deletion, and the worked
+example survives while costing nothing. It was planning a fifth-and-sixth test
+case for a duplicate `example-login` feature on every single `ci` run: roughly
+27k input and 3.2k output tokens per run, about $0.22 at Opus 5 list, for tests
+nobody wanted. Documented in `docs/kb-authoring.md` and the README quickstart.
+
+#### Checked and left alone
+
+The `temperature`-rejection retry costs one extra request per process, but the
+API rejects it with a 400 before generating anything, and the model id is
+remembered for the rest of the run (`anthropic.ts` already caches it). Latency,
+not money. No change.
+
+Tests: 957 across 70 files (+15).

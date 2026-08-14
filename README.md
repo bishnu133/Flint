@@ -49,6 +49,9 @@ if your app does not use `data-testid`. Then:
 pnpm cli explore --dir $DEMO
 
 # 4. Describe one feature in kb/features/<id>.md, then run the pipeline
+#    (copy the scaffolded kb/features/_example.md and drop the underscore —
+#     `_`-prefixed specs are skipped, so nothing costs a model call until
+#     you have written something you actually want)
 pnpm cli ci --dir $DEMO
 ```
 
@@ -111,6 +114,10 @@ what it cannot fix with a `fixme` explaining why.
 | `flint pr`                                | Commit the suite on a branch; `--push` opens a pull request         |
 
 `--dir <path>` and `--help` work on all of them.
+
+**Structured logs go to stderr; stdout carries only the command's output.** So
+`flint ci --json | jq .ok` works, and `2>/dev/null` gives you the prose without
+the diagnostics.
 
 **Use `flint ci` rather than `plan` + `generate` in a loop.** `generate` gates
 one feature against the suite as it currently stands, which is right for one
