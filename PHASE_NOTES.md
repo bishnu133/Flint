@@ -2159,3 +2159,667 @@ Flint checkout — a line that looks copy-pasteable and is not. Same shape as th
 earlier `--dir` problems: output that assumes cwd is the project. `displayPath`
 now prints relative only when the file is under the shell's own directory, and
 absolute otherwise.
+
+## Phase 6 — Integration, CI & Polish (in progress)
+
+### 6.1 `flint ci` — one batch, one gate
+
+The Phase 0 stub is replaced. `ci` is deliberately **not** a shell loop over the
+other commands, because that is exactly what failed twice on the operator's
+machine:
+
+```
+plan cart; generate cart
+  -> Generated code does not typecheck; nothing was written:
+     tests/login.spec.ts(30,36): Property 'elCf510ff0b994Select' does not exist
+```
+
+`flint generate <feature>` gates one feature against the suite **as it
+currently stands**. That is right for one feature and wrong for a full run:
+whichever feature goes first meets the others' un-regenerated specs. Reordering
+only moves the problem — there is no safe order, because the unit being checked
+is wrong.
+
+`emitBatch` (`src/generator/batch.ts`) emits every feature in memory, threading
+the page-object records through so two features sharing a page still share its
+locators, and returns one combined file set. `ci` gates that set **once** and
+writes only if it passes. The unit that must compile is the suite afterwards,
+and the Phase 4 guarantee — never leave a suite Flint knows does not compile —
+now holds across a multi-feature run instead of only within one.
+
+The order-independence is a property, not a hope: a test asserts that
+`[login, cart]` and `[cart, login]` produce byte-identical page objects and the
+same file list. If order still mattered, batching would only have moved the
+problem.
+
+**`ci` does not explore.** Exploration needs a browser, credentials and
+minutes, and a CI job that silently re-crawls a live application on every push
+is a surprise nobody asked for. `ci` uses the Screen Model it finds and refuses
+with an actionable message when there is none.
+
+**`--json` prints a stable machine-readable summary** — per-feature case counts,
+gate result, verify totals, pass rate, repair count, report path — and the exit
+code is non-zero on anything that is not a clean pass. A CI step that exits 0 on
+a failed gate is worse than no CI step at all.
+
+Flags: `--feature <id...>`, `--repair`, `--no-llm`, `--ready`, `--no-verify`,
+`--json`.
+
+### 6.2 Drift mode — "which tests does this UI change break?"
+
+`flint explore --diff` already said what moved. On its own that is a wall of
+element ids: true, and nearly useless, because the operator's question is
+whether they have to do anything about it. Drift mode answers it by walking the
+change back through the suite.
+
+**The mapping** (`src/drift/impact.ts`, pure):
+
+```
+changed element -> page object that addresses it -> feature -> tests
+```
+
+Two independent links, because a suite is not always one Flint generated:
+
+- **record** — `.flint/page-objects.json` names the element ids each generated
+  page object exposes. Exact, and it carries feature ids, so it reaches test
+  titles through the coverage map.
+- **selector** — the Suite Index records the literal selector strings each page
+  object uses. This one works for page objects Flint never wrote, which is the
+  reason the index exists at all.
+
+The selector link deliberately **ignores `role` candidates**. The Phase 2 scan
+records a call's first string argument, and for `getByRole('button', { name: …
+})` that is the bare role. Matching on it would report every button in the suite
+as affected by any button changing; a false "47 tests break" is worse than a
+quiet miss, because the operator stops reading the report.
+
+**Severity is three-valued, and it is not decorative:**
+
+| severity   | when                                                | meaning                         |
+| ---------- | --------------------------------------------------- | ------------------------------- |
+| `breaks`   | a selector the page object **actually uses** is gone | it will not resolve             |
+| `likely`   | identity moved (role, name, test id, framePath)      | depends which candidate was used |
+| `possible` | element intact, `states` changed                     | a visibility assertion may flip |
+
+A lost selector the page object does not use is `likely`, not `breaks`. Added
+selectors and score nudges produce no drift entry at all.
+
+Added elements are reported as **coverage**, never as breakage. Changes that map
+to nothing in the suite are counted separately rather than listed.
+
+**One defect this found in the coverage map.** A test can appear twice: once
+from the scanned spec (title with the tags the emitter appended) and once from
+plan history (the planner's bare title). Unfolded, one test reads as "2 tests at
+risk". They are folded on the bare title via the emitter's own `splitTitleTags`,
+preferring the variant a spec file declares — that is the one the operator can
+open.
+
+**The repair: `--fix-page-objects`.** Re-emits page objects from the new model
+and **never touches a spec**. That is what makes it safe rather than merely
+convenient:
+
+- *The specs are the check.* They are not rewritten, so running the compile gate
+  over new page objects + untouched specs asks exactly the right question: do
+  the tests still work against the new addresses? If a locator disappeared the
+  gate fails, **nothing is written, and the Screen Model is not accepted either**
+  — accepting it would hide the drift. The message says to re-plan with
+  `flint ci`, and names the locators whose elements are gone.
+- *Targeting falls out of the write layer.* Every page object is re-emitted, but
+  `planWrites` reports byte-identical files as `unchanged` and never rewrites
+  them. Only genuinely affected files move, without this module guessing which
+  ones those are — a guess that would be wrong the moment a shared page object
+  was involved.
+
+On success the new model **is** written and the suite re-indexed, so the next
+`--diff` is clean and the page objects match the model on disk.
+
+**Exit codes.** `--diff` still exits non-zero on drift so CI can gate on it,
+except when `--fix-page-objects` resolved it and proved the suite still
+compiles.
+
+**Frozen-file note (rule 2).** All logic is in new files under `src/drift/`.
+`src/cli/commands/explore.ts` gained one flag and a four-line call inside the
+existing `--diff` block — the wiring point `diffModels`' own doc comment named
+for Phase 6 ("Phase 6 maps `changedElements` onto the Suite Index"). No schema
+changed: `DriftImpact` is an internal type, not a `src/schemas/` contract.
+`src/generator/batch.ts` (written in 6.1, this phase) gained `staleLocators` on
+its per-feature result, which drift needs and `ci` ignores.
+
+Tests: 21 (14 impact, 4 regenerate, 3 end-to-end). The end-to-end ones run the
+real compile gate against a stubbed `@playwright/test` installed under the
+suite's `node_modules` — installed rather than import-rewritten, because drift
+mode emits the files itself and a missing package would make the gate *skip*,
+which would make the refusal test pass for the wrong reason.
+
+**Open question (not blocking).** Test-level precision stops at the feature: a
+change to a shared page object flags every test of every feature that
+contributed to it, because nothing records which spec imports which page object.
+The Suite Index would need import edges to do better, and `scan.ts` is frozen.
+Recorded here rather than worked around.
+
+### The seventh instance: superseding hid the coverage map, not the test list
+
+Found in the operator's first live `flint ci` run (2026-08-13). The run reported
+success and deleted ten working tests:
+
+```
+Planning 3 feature(s): cart, example-login, login
+  cart: 8 case(s)
+  example-login: 8 case(s)
+  login: 4 case(s)
+Wrote 3 file(s) to e2e
+No new tests for: cart, login — every case was a duplicate.
+Tests: 3      <- the suite had 13
+CI passed.
+```
+
+**Cause.** `supersedeOwnGeneratedTests` removes a feature's own generated titles
+from `index.coverageMap`. The Context Builder renders the index in two places:
+"Coverage by feature id" (counts, from the map) and **"Existing tests (title —
+file)"**, which walks `index.specs[].testTitles` directly. The second list still
+carried every title superseding had just hidden, so the planner read cart's own
+five tests as prior art and marked all eight new cases `skipped-duplicate`. The
+emitter then wrote a spec with nothing in it.
+
+This is the same bug as the exemplar leak, one layer down, and the seventh time
+this class has appeared: **Flint reading its own previous output as somebody
+else's input.** Each time the fix has been to name one more channel through
+which the previous answer reaches the question.
+
+**Fix.** `src/planner/hide-superseded.ts` — `hideSupersededTests()` hides those
+titles from `specs` as well as from the coverage map. Scoped exactly: only
+titles the feature's own coverage claims, and only in **managed** files. Another
+feature's generated tests stay visible (real prior art), and a hand-edited file
+means a human owns those tests now, so they stay visible too. Wired into both
+`flint plan` and `flint ci`, so the two commands cannot disagree.
+
+Kept in a new module rather than inside `supersede.ts`, which is a frozen Phase 3
+file (rule 2). `plan.ts` changed by one line at the same wiring point Phase 5
+already extended.
+
+### `flint ci` refuses to erase a spec — and only that
+
+The supersede fix removes the known cause. The guard exists because there will
+be others: **no amount of prompt correctness should be load-bearing for not
+deleting somebody's tests.**
+
+The first version of this guard refused any net decrease, and the operator's
+very next run tripped it at 12 tests against 13 — one case had merged into
+another. That is not data loss. Planning is a model call; a plan varying by a
+case between runs is ordinary, and a guard that fires on ordinary variation is
+one people learn to pass the override to by reflex, which costs exactly the
+protection it was built for.
+
+So the line is **zero, not fewer**. A spec that holds tests and would hold none
+was not regenerated, it was erased — different in kind, and the failure that
+actually happened. `src/integrator/shrink-guard.ts` compares, per feature, the
+tests in the spec files it owns against what the batch would write:
+
+```
+Refusing to write: this run would erase spec files that currently have tests.
+  cart: e2e/tests/cart.spec.ts — 5 test(s) would be lost
+Nothing was written.
+```
+
+A merely smaller plan writes, with a note saying so. `--allow-empty` overrides
+the refusal. `failedStage: 'shrink'`, `tests: { before, after }` and
+`emptiedSpecs` are in the `--json` summary.
+
+The compile gate cannot catch any of this: **an empty spec typechecks
+perfectly.** That is why the guard counts tests, and why it runs before the
+write rather than after the verify.
+
+### Drift repair now admits when it did not apply
+
+The same run hit a page object the operator had edited by hand. The writer
+correctly kept their version and wrote ours beside it as
+`inventory-html.page.flint.ts` — and `--fix-page-objects` still printed
+"Re-pointed 2 page object file(s)" and "The existing specs still compile against
+them". Both true, and together misleading: the specs import the *original*,
+which still addresses the old UI. It compiles and then fails at runtime for the
+reason the repair claimed to have fixed.
+
+It now names diverted files explicitly and says the tests using them still
+address the old UI.
+
+### What the live run got right
+
+Worth recording, because these were the things most likely to be wrong:
+
+- `explore --diff` on an unchanged app: `No changes.`, exit 0. No false drift.
+- The drift report named 13 of 13 tests as breaking for a single changed
+  element. That looked like over-reporting and is not: every test in the suite
+  signs in through `HomePage`, so a broken login button really does break all of
+  them.
+- `--fix-page-objects` re-pointed the page objects, left every spec byte
+  identical, updated the model, and `flint verify` then passed 7/7 that ran.
+
+### 6.3 Benchmark runner — the number V2 has to beat
+
+Part D makes a V1 baseline a **prerequisite** for V2: "agentic upgrades must
+PROVE improvement, not vibe it." That only works if the baseline exists before
+anyone starts building the thing it judges, which is why this ships now rather
+than "when we get to V2".
+
+`flint bench` measures the pipeline end to end and writes `benchmarks/baseline.md`
+(plus the same data as JSON, for diffing):
+
+| Metric | Source |
+| --- | --- |
+| Compile rate | per feature, attributed from the gate's error paths |
+| First-run pass | the verify run **before** repair |
+| Post-repair pass | the same run after the repair loop |
+| Selector re-resolve rate | `--validate` only — needs a browser |
+| Tokens + est. cost per feature | recorded per call, priced from a dated table |
+| Wall time per stage | measured around plan / emit / gate / verify / repair |
+
+**It is not `flint ci --json`.** `ci` reports what a run did; bench reports what
+the pipeline costs and achieves. The first-run pass rate is the one `ci`
+structurally cannot give you — it repairs and *then* reports, so the pre-repair
+number is gone by the time it prints. Separating them is the whole point: the
+V2 claim will be "repair got better", and that is unfalsifiable without both.
+
+**Nothing defaults to zero.** Every metric is measured or `undefined`, and
+`undefined` renders as `not measured`. A benchmark that silently reports 0% for
+something it never ran is worse than one that admits the gap: the first is a
+false regression, the second is a to-do. The selector rate is the live case —
+it needs a browser, so without `--validate` it says so rather than inventing
+100%.
+
+**Costs are quoted, not remembered.** `src/bench/pricing.ts` carries an `asOf`
+date on every figure, checked against the published table rather than recalled,
+and the report prints the date beside the number so a stale table announces
+itself. An unknown model yields **no** cost rather than zero, and one unpriced
+model makes the *total* absent rather than under-counted — a total that silently
+drops a model reads as complete and is not.
+
+**Token attribution is by call order, not by parsing `meta.purpose`.**
+`RecordingProvider` decorates the real provider (so the measured path is the
+production path, not a copy that could drift); the command notes `calls.length`
+before each feature and slices. A purpose string is prose for humans and would
+break the numbers the first time someone reworded it.
+
+**Compile rate is per feature, not one boolean.** The batch gate is
+all-or-nothing, which would make the metric degenerate. Gate errors are
+attributed to features by the spec file tsc names; an error in a *shared* page
+object is charged to every feature in the batch, which is the honest reading —
+the batch did not compile.
+
+Flags: `--feature <id...>`, `--out <path>`, `--validate`, `--no-repair`,
+`--no-write` (measure without touching the suite), `--json`.
+
+Tests: 16 (11 metrics, 5 recorder). The baseline itself is not committed yet —
+it has to come from a live run against the demo app, which is the operator's
+machine, not this sandbox.
+
+### 6.4 Docs
+
+`README.md`, `docs/kb-authoring.md`, `docs/config-reference.md`.
+
+The exit criterion is that **a stranger can onboard from the README alone**, so
+the README is a runnable path — install, `init`, `explore`, `ci` — not a feature
+tour. It leads with the two things that actually stop a newcomer, both learned
+from the operator's own runs rather than guessed:
+
+- run commands **from the Flint checkout** with `--dir`, which was the first
+  live failure of Phase 5 and cost two rounds to diagnose;
+- set `explorer.testIdAttribute` before the first real run, because getting it
+  wrong fails **silently** into role and CSS selectors.
+
+The "What Flint will not do" section is deliberate. Every entry is a refusal
+that exists because the alternative silently produces something worse — no
+non-test exploration, no writing code that does not compile, no overwriting
+hand edits, no erasing a spec, no counting a test that did not run as passing,
+no patching over what may be a real application defect. A user who reads only
+that section still knows the shape of the tool.
+
+The KB guide covers what exploration cannot discover: intent. Frontmatter
+table, a weak-vs-strong contrast for acceptance criteria (the highest-leverage
+field), flow scripts for states no link reaches, and the two behaviours that
+surprise people — superseding a feature's own previous tests, and data needs
+becoming `fixme` rather than silent passes.
+
+The config reference gives every key its default **and what it costs to get
+wrong**. `testIdAttribute` and `envClass` get their own sections: the first
+fails silently, the second is a safety rail with no override flag. It also
+settles which `.flint` files to commit (model, plans, page-object record: yes;
+run reports: no), which had not been written down anywhere.
+
+**Note on `pnpm format:check`.** It fails on `PHASE_NOTES.md` and did so before
+this phase — the file predates the prettier config and reformatting 2,400 lines
+of history would destroy the diff that makes it useful. The definition of done
+is `test`, `build`, `lint`, all of which are green. The new docs are
+prettier-clean.
+
+### 6.5 GitHub PR mode — `flint pr`
+
+Both open questions answered by the operator (2026-08-14): **octokit, not the
+`gh` CLI**, and **no pushing by default**.
+
+- **octokit** — no external binary to install, behaves the same in CI as on a
+  laptop, and it does not inherit whatever account someone happens to be logged
+  into, which is a surprising way to decide who authored a pull request.
+- **`--push` is opt-in.** By default `flint pr` creates a branch, commits, and
+  prints the two commands to finish. A test generator that pushes to somebody's
+  origin as a side effect of generating tests is a bad default; the blast
+  radius of getting it wrong is a branch on their remote they did not ask for.
+
+**Staging is path-scoped: `<suiteDir>` and `.flint`, never `git add -A`.** A
+generator that sweeps the working tree will eventually publish somebody's
+half-finished refactor or their `.env`, and they will find out from the pull
+request. Unrelated changes are counted, listed, and left alone. This is the one
+property with a test that could not be written against a mock, so `git.test.ts`
+runs against a real temporary repository.
+
+**The PR body leads with what ran, not what was generated.** A reviewer opening
+a generated PR has one question — should I trust these tests? — and "adds 12
+tests" does not answer it. First line is `**3 of 4 tests pass; 1 fail.**`, or
+`**Not verified**` when the suite was not run or the app was unreachable. Every
+non-passing test is named with its failure class and first error line, and
+assertion failures that may be real application defects get their own section.
+Blocked cases carry their reason instead of vanishing.
+
+#### Two defects the tests caught
+
+Both would have shipped without a real repository and a table-driven parser
+test:
+
+1. **`git status --porcelain` collapses untracked directories.** A hundred new
+   spec files showed up as one line, `e2e/`, and `git add` then failed on
+   `.flint` when that directory did not exist yet — which reads like a Flint
+   bug and is not one. Fixed with `-uall` and by staging only paths that exist.
+
+2. **A GitHub Enterprise remote would have opened the PR on the public repo.**
+   `github.mycorp.com/acme/widgets` parses to `acme/widgets` just as happily as
+   github.com does, and octokit defaults to `api.github.com` — so Flint would
+   have tried to open a pull request against a *stranger's* public repository of
+   that name. `parseRemote` now anchors the host to github.com exactly;
+   anything else returns undefined and the command says "not a GitHub remote —
+   your branch is pushed, open it in your host's UI."
+
+**Failure handling is about not losing work.** Every error after the commit
+says the commit is safe and where it is: a failed push, a missing remote, a
+missing token, a GitHub refusal. The token-missing path prints the `compare`
+URL so the operator can finish in one click.
+
+Flags: `--branch`, `--base`, `--remote`, `--push`, `--draft`, `--title`,
+`--dry-run`.
+
+Tests: 35 (11 git against a real repo, 11 body, 13 remote/token parsing).
+
+### 6.6 Four defects from the fourth live run (2026-08-14)
+
+The operator's log of a full `ci` → `explore --diff` → `bench` → `pr` pass.
+The run was mostly right — the drift severities in particular were correct, and
+the shrink guard and gate both did their jobs — but it surfaced four things.
+
+**1. The compile gate could deadlock with no way out named.** A hand-edited
+`pages/inventory-html.page.ts` was diverted to `.flint.ts` (correctly). The
+regenerated `cart.spec.ts` referenced members that exist only in Flint's
+version, so `tsc` reported `TS2551: Property 'addToCartButton2' does not exist`
+— and would report it identically on every future run, because nothing about
+re-running changes which file the specs are checked against. The gate was
+right; the message was useless.
+
+`src/integrator/divert-deadlock.ts` is a pure function over the write decisions
+and the tsc diagnostics: when a run diverted anything, it names both files and
+the two ways out (merge from the `.flint.ts` copy, or `rm` both and let Flint
+own it again). It is confident when the diagnostics carry the divergence
+signature (TS2339/2551/2554/2353) and hedges when they do not — a syntax error
+would have failed whether anything was diverted or not, and claiming otherwise
+sends someone down the wrong path. Wired into `ci`, `bench`, and the drift
+repair's refusal path.
+
+**2. Plans were persisted before the gate ran.** `ci` wrote each plan to
+`.flint/plans/` inside the planning loop, so a run that then failed the gate
+left plans on disk claiming coverage for tests that were never generated. That
+is why `explore --diff` reported nine tests as `(file unknown)` — it was reading
+Flint's own abandoned output as evidence of a suite that does not exist. **The
+eighth instance of this project's recurring bug class**, and the first one
+caught before a user hit it in anger rather than after.
+
+Plans are now held in memory and written only after `applyWrites` succeeds.
+Cross-feature dedupe within a run still works, via
+`src/planner/session-coverage.ts`, which supplies what the disk used to: history
+for features the run is not touching, plus the plans made so far in this run.
+It drops the stored plan of **every** feature in the run, not only the one being
+planned — those plans describe the suite as it was before the run and are about
+to be replaced, so deduping against them is the same mistake `excludeFeature`
+exists to prevent, one feature over. Same change in `bench`. `store.ts` was not
+modified (frozen, Phase 3).
+
+**3. Drift's repair message contradicted itself.** It printed "Re-pointed 1
+page object file(s)" from `applied.written` — which counts diverted files —
+and then, three lines later, "NOT applied to these". The count is now
+`written - diverted.length`, with a distinct sentence for the case where every
+file that needed rewriting is one the operator has edited.
+
+**4. `bench` wrote a baseline from a failed run.** Compile rate 66.7%, pass
+rates "not measured", and a file called `benchmarks/baseline.md` that reads like
+the number V2 must beat. `provisionalReasons()` now derives the problems from
+the report itself, `formatBaseline` puts a warning block **above** the headline
+table, and the CLI repeats it after the write. The exit code was already 1;
+that was not enough, because the file outlives the terminal.
+
+Also fixed: `PHASE_6_TESTING.md` §5 told the operator to `git -C $DEMO add` in a
+directory `flint init` never made a repository. `flint pr` refused correctly —
+that was a guide defect, not a Flint one.
+
+Tests: 942 across 68 files (+19).
+
+### 6.7 Three defects that need frozen files changed (2026-08-14)
+
+Found in the fifth live run. All three are one-to-three-line fixes in completed
+phases, so per working rule 2 they are recorded here rather than made.
+
+**A. `pino` writes to stdout, so `--json` output is not parseable.**
+`src/shared/logger.ts` (Phase 0) creates the logger with no destination, which
+means `process.stdout` — the same stream the CLI prints its human output and its
+`--json` summary on. Two consequences, both visible in the operator's log:
+structured log lines land in the middle of prose and out of order (`plan:
+generated` printed *after* `CI failed at the gate stage.`), and roughly sixty
+blank lines appeared inside a single message because two buffered writers were
+sharing one fd. The functional half is worse than the cosmetic half: anything
+piping `flint ci --json` into `jq` gets log lines mixed into the object, and
+`--json` for CI consumption is a Phase 6 exit criterion.
+
+Fix: `pino(options, process.stderr)`. Diagnostics belong on stderr; stdout is
+the product. Reproduced locally — `console.log`/`logger.info`/`console.log`
+prints `BEFORE`, `AFTER`, then the log line.
+
+**B. The repair loop rewrites managed files without re-stamping the marker.**
+`src/verifier/repair-runner.ts` (Phase 5) writes with plain `writeFileSync` at
+two points — the selector/LLM repair's `writeFile` dependency, and the `fixme`
+marker writer. `withMarker` is called in exactly one place in the codebase,
+`integrator/writer.ts`. So a repaired file keeps the hash of its *pre-repair*
+content, `classify()` returns `hand-edited`, and the next `ci` run diverts it to
+`*.flint.ts` and fails the compile gate — permanently.
+
+**This is the ninth instance of the recurring class: Flint reading its own
+previous output as somebody else's input.** It is also the actual cause of the
+operator's stuck `inventory-html.page.ts`: the locator swap in that file
+(`addToCartButton` moved from the bike-light testid to the backpack testid) is
+exactly what the deterministic selector retry does. Nobody hand-edited anything.
+
+Fix: re-stamp with `withMarker` at both write sites.
+
+**C. `flint init` scaffolds no `.gitignore`.** The generated suite has its own
+`node_modules` (installed deliberately — `@playwright/test` is the suite's
+dependency, not Flint's), so a scaffolded project's first commit sweeps in about
+seven hundred vendored files. `src/cli/scaffold.ts` is Phase 0.
+
+Fix: scaffold a `.gitignore` covering `<suiteDir>/node_modules/`,
+`test-results/`, `playwright-report/`, `blob-report/`, `.DS_Store` and `.env`.
+
+#### Fixed now, in Phase 6 code
+
+- **`flint pr` would have committed `node_modules`.** Staging is path-scoped to
+  `<suiteDir>` and `.flint`, which is correct, but git decides what inside those
+  paths matters from `.gitignore` — and there is none (defect C). `git add --
+  e2e` would therefore vendor the whole dependency tree into the pull request.
+  `src/pr/vendored.ts` refuses, names the offending segments, and prints the
+  `.gitignore` to write. Refusing rather than silently excluding: the missing
+  ignore file is the real defect and the operator needs it for their own
+  `git status`, not just for Flint's commit. Segment-matched, not substring —
+  `pages/node_modules-viewer.page.ts` is a test file.
+- **The divert message blamed the operator for an edit Flint made.** Given
+  defect B, "you have edited them" is often false. It now says the contents no
+  longer match the marker Flint last wrote, and names both causes.
+- `PHASE_6_TESTING.md` §5–6: the guide told the operator to `git add -A && git
+  commit` before `flint pr`, which commits the generated suite and leaves `pr`
+  correctly reporting nothing to propose. My error, not Flint's.
+
+#### Also observed, not defects
+
+`kb/features/example.md` ships with `flint init` and plans a full second login
+feature (`example-login`, 5 cases) alongside the operator's own `login`. Worth
+deleting from a real project; worth reconsidering as a scaffold default.
+
+### 6.8 The three frozen-file fixes, approved and made (2026-08-14)
+
+Operator approved all three from 6.7, plus removing the scaffolded example
+feature. Recorded here because rule 2 exists to make changes to completed
+phases visible, not to prevent them.
+
+**A. `pino` now writes to stderr** (`src/shared/logger.ts`, Phase 0). Verified
+end to end: `flint ci --json` piped into a JSON parser now parses, where before
+the log lines landed inside the object. Diagnostics on stderr, product on
+stdout — which also ends the interleaving, since two separately buffered writers
+no longer share one fd.
+
+**B. Repair re-stamps the managed marker** (`src/verifier/repair-runner.ts`,
+Phase 5). `restamp()` at both write sites — the repair loop's `writeFile`
+dependency and the `fixme` writer. It deliberately does **not** stamp an
+unmarked file: repair is allowed to fix a hand-written page object, but adopting
+one would let a later run overwrite somebody's own code without warning.
+
+This was the operator's stuck `inventory-html.page.ts`, and the ninth instance
+of the recurring class. `repair-runner.test.ts` (6 tests) pins it, including the
+inverse assertion — that an un-restamped file classifies as `hand-edited` — so
+the test still means something if `classify` ever changes.
+
+**C. `flint init` scaffolds a `.gitignore`.** Stored in the template tree as
+`gitignore` and dotted by `destinationFor()` on the way out, because npm renames
+`.gitignore` to `.npmignore` inside a published package — a template under its
+real name would work from a git clone and silently vanish for anyone who
+installed from the registry. It ignores `e2e/node_modules/`, the three Playwright
+output directories, `.DS_Store`, `.env`, and `.flint/auth/` — but **not** the
+rest of `.flint/`: the Screen Model and the plans are the record of what the
+suite was generated from, and reviewing a change to them is the point.
+
+**D. `kb/features/example.md` is now `_example.md`.** The `_`-prefix skip
+already existed for feature specs (`discoverFeatureFiles`), matching the
+flow-script convention — so this is a rename, not a deletion, and the worked
+example survives while costing nothing. It was planning a fifth-and-sixth test
+case for a duplicate `example-login` feature on every single `ci` run: roughly
+27k input and 3.2k output tokens per run, about $0.22 at Opus 5 list, for tests
+nobody wanted. Documented in `docs/kb-authoring.md` and the README quickstart.
+
+#### Checked and left alone
+
+The `temperature`-rejection retry costs one extra request per process, but the
+API rejects it with a 400 before generating anything, and the model id is
+remembered for the rest of the run (`anthropic.ts` already caches it). Latency,
+not money. No change.
+
+Tests: 957 across 70 files (+15).
+
+### 6.9 Live verification of the 6.8 fixes (2026-08-14)
+
+Operator re-ran the pipeline. **The deadlock is gone**: the compile gate passed,
+13 tests emitted, 11 ran, 11 passed, 1 skipped, 1 fixme, and `flint ci` exited
+clean. `bench --validate` recorded the V1 baseline — compile rate, first-run
+pass, post-repair pass and selector re-resolve all 100%, $0.22 per feature,
+93.9s wall.
+
+Three things the run surfaced.
+
+**A. `--json | jq` still failed, and it was my instruction, not the logger.**
+The stderr fix works — the pino lines appeared on the operator's terminal while
+stdout was piped away, which is the proof. What broke `jq` was `pnpm run`
+printing its own `> flint@0.0.0 cli` banner to stdout, ahead of the JSON.
+Confirmed locally: `pnpm cli --version 2>/dev/null` emits four lines of banner
+before the version. Fixed in the docs (`pnpm -s`), not in the code — an
+installed `flint` binary was never affected, and Flint should not be papering
+over its package manager.
+
+**B. The baseline had a row that did not add up.** `login` showed 5 cases, 0
+degraded, 3 live tests. Nothing was wrong — two cases duplicated tests `cart`
+had already emitted, and `liveTests = cases - skippedDuplicates - degraded` —
+but `skippedDuplicates` was computed and then dropped before rendering. A
+document whose stated purpose is "V2 has to beat these numbers" cannot have
+rows that need the source open to interpret. Added a `Deduped` column; the four
+per-feature counts now reconcile, and a test asserts it.
+
+**C. Planning is not deterministic, and CLAUDE.md says it must be.** Left for
+the operator to decide — written up below rather than fixed, because the fix is
+architectural.
+
+Three runs over *identical* input (same Screen Model, same specs, no edits
+between):
+
+| Run | cart cases | cart out-tokens | cart degraded | login cases | login out-tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `ci` | 6 | 5156 | 1 | 5 | 3051 |
+| `ci --json` | 6 | 6128 | 2 | 4 | 2583 |
+| `bench` | 6 | 5284 | 2 | 5 | 2613 |
+
+`login` produced five cases, then four, then five. The suite is different every
+run.
+
+The cause is in plain sight in the logs: `model rejects the temperature
+parameter — retrying without it`. `claude-opus-5` refuses `temperature`, so
+`anthropic.ts` correctly drops it and retries — and the request then goes with
+no temperature field at all, which means the API default, not 0. The retry is
+right; what is missing is that nothing noticed the determinism rule had been
+silently voided. "Regenerating identical input must produce byte-identical
+output" (CLAUDE.md, locked) is currently false for any feature spec.
+
+Note the emitter is not implicated: it is pure templating and is byte-identical
+given a plan. It is Stage A that varies, and the emitter faithfully turns a
+different plan into a different suite.
+
+This is a `PHASE_NOTES` question per rule 7, not a unilateral change: the
+options (accept and document; pin an older model; cache plans by input hash)
+differ in cost, and the third is the one that also fixes the ~$0.45 every `ci`
+currently spends re-planning work it already has on disk.
+
+Tests: 961 across 70 files (+4).
+
+### 6.10 Plan cache (2026-08-14)
+
+Approved by the operator. `flint ci` now reuses a feature's stored plan when
+nothing that shapes it has changed, and makes no model call at all on an
+unchanged re-run.
+
+**The key is the rendered prompt plus the model id.** Deliberately not a list of
+inputs: the prompt is already a pure function of the spec, the matched Screen
+Model pages, the conventions, the Suite Index summary, the exemplars and the
+template version, so hashing it covers every one of those and cannot rot when a
+section is added to the context builder. Rebuilding the prompt to compute the
+key is pure CPU, and doing it in a new module rather than inside `generatePlan`
+leaves Phase 3 frozen.
+
+**The entry stores the key, never the plan.** `.flint/plans/<feature>.plan.json`
+stays the single copy, so a human who tightens an assertion by hand gets their
+version rather than a cached duplicate of the original. A missing, deleted or
+unparseable plan is a miss, never an error.
+
+**The entry is written by the caller, only once the plan is persisted.** This
+was a bug in my first draft, caught before wiring: `ci` holds plans in memory
+until the compile gate passes, so writing the key at planning time would leave a
+key describing plan B beside plan A still on disk from the last good run — and
+the next run would serve A as though it were B. The tenth instance of the same
+class, and this time in code I was writing to fix the ninth. Key and plan are
+now written in the same loop, and a test asserts `generatePlanCached` writes
+nothing itself.
+
+**Two commands deliberately do not use it.** `flint plan` is the explicit "plan
+this now" command. `flint bench` measures what a feature costs, and a benchmark
+reporting $0.00 because it reused yesterday's answer would be measuring nothing.
+
+This is the determinism fix from 6.9, arrived at from the other side: it does
+not make the model repeat itself, it stops asking twice. `--replan` forces a
+fresh plan.
+
+Tests: 976 across 71 files (+15).

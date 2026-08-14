@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { readdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { modelPath, readModel } from '../explorer/screen-model-store.js';
+import { readMarker, withMarker } from '../indexer/managed.js';
 import {
   repairHistoryComment,
   repairTest,
@@ -139,7 +140,7 @@ export async function repairFailures(options: RepairFailuresOptions): Promise<Ru
           return existsSync(abs) ? readFileSync(abs, 'utf8') : undefined;
         },
         writeFile: (relativePath, contents) => {
-          writeFileSync(resolve(options.suiteRoot, relativePath), contents, 'utf8');
+          writeFileSync(resolve(options.suiteRoot, relativePath), restamp(contents), 'utf8');
         },
         pageObjectFiles: () => listPageObjects(options.suiteRoot),
         rerun: (test) => rerunOne(options.suiteRoot, test, logger),
@@ -233,9 +234,30 @@ function writeFixme(
     );
     return false;
   }
-  writeFileSync(abs, applied.source, 'utf8');
+  writeFileSync(abs, restamp(applied.source), 'utf8');
   logger.info({ test: outcome.result.title, file: outcome.result.file }, 'repair: marked fixme');
   return true;
+}
+
+/**
+ * Re-stamp the managed marker after repair rewrites a file.
+ *
+ * Without this, repair is a hand edit as far as the rest of Flint is concerned.
+ * The marker records a hash of the content; repair changes the content and
+ * leaves the old hash, so `classify()` returns `hand-edited`, the next `flint
+ * ci` diverts the file to `*.flint.ts` rather than overwriting it, and the
+ * compile gate then fails forever — the regenerated specs are checked against
+ * the repaired file, which no longer has the members they use. A real run got
+ * stuck exactly this way, and the operator was told they had edited a file they
+ * had never opened.
+ *
+ * Files Flint does not own are left alone: `withMarker` on an unmarked file
+ * would claim ownership of somebody's hand-written page object, which is worse
+ * than the problem it solves. Repair is allowed to fix those; it is not allowed
+ * to adopt them.
+ */
+export function restamp(contents: string): string {
+  return readMarker(contents) === undefined ? contents : withMarker(contents);
 }
 
 function summarise(outcome: RepairOutcome, marked: boolean | undefined): RepairSummary {

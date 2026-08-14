@@ -1,0 +1,17 @@
+# Dependencies of the generated suite.
+# The suite has its own package.json — @playwright/test is its dependency, not
+# Flint's — so these live inside the suite directory and must not be committed.
+e2e/node_modules/
+
+# Playwright run output
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+
+# Local noise
+.DS_Store
+.env
+
+# Commit the rest of .flint/ — the Screen Model and plans are the record of what
+# the suite was generated from, and reviewing a change to them is the point.
+.flint/auth/

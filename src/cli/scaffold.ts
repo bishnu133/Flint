@@ -32,9 +32,28 @@ function walk(root: string, dir: string, out: ScaffoldFile[]): void {
     if (statSync(abs).isDirectory()) {
       walk(root, abs, out);
     } else {
-      out.push({ rel: relative(root, abs), source: abs });
+      out.push({ rel: destinationFor(relative(root, abs)), source: abs });
     }
   }
+}
+
+/**
+ * Where a template file lands in the target project.
+ *
+ * One rename, and it exists because npm renames `.gitignore` to `.npmignore`
+ * inside a published package. A template stored under its real name would
+ * therefore work from a git clone and silently vanish for anyone who installed
+ * Flint from the registry — the worst kind of difference, since the scaffold
+ * would simply be missing a file rather than failing. So it is stored as
+ * `gitignore` and dotted on the way out.
+ *
+ * Scaffolding it at all matters more than it looks: the generated suite keeps
+ * its own `node_modules` (its `@playwright/test` dependency, not Flint's), and
+ * without an ignore file a project's first commit sweeps in several hundred
+ * vendored files.
+ */
+export function destinationFor(templateRelativePath: string): string {
+  return templateRelativePath === 'gitignore' ? '.gitignore' : templateRelativePath;
 }
 
 /** Return the subset of planned files that already exist in the target dir. */

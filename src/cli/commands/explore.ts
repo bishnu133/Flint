@@ -23,6 +23,7 @@ import {
   replayFlows,
   type ReplayResult,
 } from '../../explorer/flows.js';
+import { reportDrift } from '../../drift/report.js';
 
 /**
  * `flint explore` — build the Screen Model by exploring the live app.
@@ -41,6 +42,11 @@ export function registerExplore(program: Command): void {
     .option('--max-depth <n>', 'override explorer.maxDepth', parseIntArg)
     .option('--role <role>', 'capture the model for a named role')
     .option('--diff', 'compare against the stored model instead of replacing it', false)
+    .option(
+      '--fix-page-objects',
+      'with --diff, re-point page objects at the new model (specs untouched)',
+      false,
+    )
     .option(
       '--validate',
       're-resolve every stored top selector and report the break rate (no crawl)',
@@ -70,6 +76,7 @@ interface ExploreOptions {
   maxDepth?: number;
   role?: string;
   diff: boolean;
+  fixPageObjects: boolean;
   validate: boolean;
   minResolveRate: number;
   headed: boolean;
@@ -218,8 +225,29 @@ async function runExplore(opts: ExploreOptions): Promise<void> {
       const diff = diffModels(previous, model);
       console.log('\nDiff vs stored model:');
       console.log(formatDiff(diff));
-      // Non-zero on drift so CI can gate on it.
-      process.exitCode = diff.unchanged ? 0 : 1;
+
+      // Phase 6 drift mode. A list of element ids answers "what moved"; the
+      // question an operator has is "does this break anything?", and only the
+      // suite can answer that.
+      let resolved = false;
+      if (!diff.unchanged) {
+        resolved = reportDrift({
+          projectRoot,
+          config,
+          before: previous,
+          after: model,
+          diff,
+          modelFile: path,
+          fix: opts.fixPageObjects,
+          logger,
+        }).resolved;
+      } else if (opts.fixPageObjects) {
+        console.log('\nNothing to fix — the model is unchanged.');
+      }
+
+      // Non-zero on drift so CI can gate on it, unless --fix-page-objects
+      // handled it and proved the suite still compiles.
+      process.exitCode = diff.unchanged || resolved ? 0 : 1;
       return;
     }
 
