@@ -25,7 +25,7 @@ git checkout claude/flint-phase-1-explorer
 git pull origin claude/flint-phase-1-explorer
 pnpm install
 pnpm build
-pnpm test          # expect: 59 files, 860 tests, 0 failed
+pnpm test          # expect: 68 files, 942 tests, 0 failed
 pnpm lint          # expect: no output
 ```
 
@@ -47,6 +47,13 @@ pnpm cli ci --dir $DEMO
 - `Wrote N file(s) to e2e`, then the verify run and its pass rate
 - **No compile-gate failure naming a spec the run "didn't touch".** That was the
   old single-feature failure mode; the batch makes it structurally impossible.
+
+If the gate _does_ fail with `Property 'somethingButton2' does not exist on type
+'SomePage'`, read the paragraph it now prints underneath: you have hand-edited a
+page object, Flint kept your version and wrote its own beside it as `.flint.ts`,
+and the new specs are written against Flint's. That failure repeats forever until
+you merge the two or delete your copy — the message names both files and the
+exact `rm`. Nothing is written in the meantime, including the plans.
 
 Then the machine-readable form CI would consume:
 
@@ -216,12 +223,23 @@ Selector re-resolve rate  100.0%
 Baseline written to ~/flint-demo/benchmarks/baseline.md
 ```
 
+If the headline block is followed by **`⚠️ This is NOT a usable baseline`**, the
+run did not complete — the file is written but stamped provisional, and it is
+not the number V2 has to beat. Fix what it names (almost always a compile-gate
+failure) and re-run before committing anything.
+
 Then commit it in the demo project — a baseline nobody can find is not a
-baseline:
+baseline. `$DEMO` is scaffolded by `flint init` and is **not** a git repository
+yet, so initialise it first (skip the first two lines if you already have):
 
 ```bash
+git -C $DEMO init -q
+git -C $DEMO add -A && git -C $DEMO commit -qm "chore: generated suite"
 git -C $DEMO add benchmarks/ && git -C $DEMO commit -m "chore: record V1 benchmark baseline"
 ```
+
+Section 6 needs the repository too — `flint pr` refuses outright without one,
+which is the correct behaviour and not a bug.
 
 Send me the contents of `benchmarks/baseline.md`.
 

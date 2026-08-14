@@ -18,6 +18,7 @@ import type { BatchFeature } from '../generator/batch.js';
 import { applyWrites, planWrites } from '../integrator/writer.js';
 import { runCompileGate } from '../integrator/gate.js';
 import { discoverSuiteFiles } from '../integrator/suite-files.js';
+import { divertDeadlockAdvice } from '../integrator/divert-deadlock.js';
 import type { Logger } from '../shared/logger.js';
 import { analyzeDrift, breakingTests, formatImpact, type DriftImpact } from './impact.js';
 import { regeneratePageObjects } from './regenerate.js';
@@ -139,6 +140,13 @@ function fixPageObjects(
         console.log(`  ${stale.className}: ${stale.elementIds.join(', ')}${owners}`);
       }
     }
+    for (const line of divertDeadlockAdvice({
+      decisions,
+      errors: gate.errors,
+      suiteDir: config.suiteDir,
+    })) {
+      console.log(line);
+    }
     console.log('');
     console.log('This drift changed what the tests can do, not just where things are.');
     console.log('Re-plan instead:  flint ci');
@@ -156,12 +164,20 @@ function fixPageObjects(
   const rescanned = scanSuite({ projectRoot, suiteDir: config.suiteDir, logger });
   writeIndex(indexPath(projectRoot), rescanned.index);
 
+  // `applied.written` counts diverted files too — those were written to a
+  // `.flint.ts` sibling, not to the page object the specs import. Reporting them
+  // as "re-pointed" and then, three lines later, as "NOT applied" is a
+  // contradiction the reader has to resolve; the count says what was repaired.
+  const repointed = applied.written - applied.diverted.length;
   console.log('');
-  console.log(
-    applied.written === 0
-      ? 'Page objects already matched the new model — nothing needed rewriting.'
-      : `Re-pointed ${applied.written} page object file(s); specs untouched.`,
-  );
+  if (repointed > 0) {
+    console.log(`Re-pointed ${repointed} page object file(s); specs untouched.`);
+  } else if (applied.diverted.length > 0) {
+    console.log('No page object was re-pointed — every file that needed rewriting is one');
+    console.log('you have edited by hand.');
+  } else {
+    console.log('Page objects already matched the new model — nothing needed rewriting.');
+  }
   // A diverted file means the repair did NOT reach the page object the specs
   // import: the operator's own version is still there, still pointing at the
   // old UI. Reporting "re-pointed" without saying so would be a false all-clear

@@ -2546,3 +2546,63 @@ Flags: `--branch`, `--base`, `--remote`, `--push`, `--draft`, `--title`,
 `--dry-run`.
 
 Tests: 35 (11 git against a real repo, 11 body, 13 remote/token parsing).
+
+### 6.6 Four defects from the fourth live run (2026-08-14)
+
+The operator's log of a full `ci` → `explore --diff` → `bench` → `pr` pass.
+The run was mostly right — the drift severities in particular were correct, and
+the shrink guard and gate both did their jobs — but it surfaced four things.
+
+**1. The compile gate could deadlock with no way out named.** A hand-edited
+`pages/inventory-html.page.ts` was diverted to `.flint.ts` (correctly). The
+regenerated `cart.spec.ts` referenced members that exist only in Flint's
+version, so `tsc` reported `TS2551: Property 'addToCartButton2' does not exist`
+— and would report it identically on every future run, because nothing about
+re-running changes which file the specs are checked against. The gate was
+right; the message was useless.
+
+`src/integrator/divert-deadlock.ts` is a pure function over the write decisions
+and the tsc diagnostics: when a run diverted anything, it names both files and
+the two ways out (merge from the `.flint.ts` copy, or `rm` both and let Flint
+own it again). It is confident when the diagnostics carry the divergence
+signature (TS2339/2551/2554/2353) and hedges when they do not — a syntax error
+would have failed whether anything was diverted or not, and claiming otherwise
+sends someone down the wrong path. Wired into `ci`, `bench`, and the drift
+repair's refusal path.
+
+**2. Plans were persisted before the gate ran.** `ci` wrote each plan to
+`.flint/plans/` inside the planning loop, so a run that then failed the gate
+left plans on disk claiming coverage for tests that were never generated. That
+is why `explore --diff` reported nine tests as `(file unknown)` — it was reading
+Flint's own abandoned output as evidence of a suite that does not exist. **The
+eighth instance of this project's recurring bug class**, and the first one
+caught before a user hit it in anger rather than after.
+
+Plans are now held in memory and written only after `applyWrites` succeeds.
+Cross-feature dedupe within a run still works, via
+`src/planner/session-coverage.ts`, which supplies what the disk used to: history
+for features the run is not touching, plus the plans made so far in this run.
+It drops the stored plan of **every** feature in the run, not only the one being
+planned — those plans describe the suite as it was before the run and are about
+to be replaced, so deduping against them is the same mistake `excludeFeature`
+exists to prevent, one feature over. Same change in `bench`. `store.ts` was not
+modified (frozen, Phase 3).
+
+**3. Drift's repair message contradicted itself.** It printed "Re-pointed 1
+page object file(s)" from `applied.written` — which counts diverted files —
+and then, three lines later, "NOT applied to these". The count is now
+`written - diverted.length`, with a distinct sentence for the case where every
+file that needed rewriting is one the operator has edited.
+
+**4. `bench` wrote a baseline from a failed run.** Compile rate 66.7%, pass
+rates "not measured", and a file called `benchmarks/baseline.md` that reads like
+the number V2 must beat. `provisionalReasons()` now derives the problems from
+the report itself, `formatBaseline` puts a warning block **above** the headline
+table, and the CLI repeats it after the write. The exit code was already 1;
+that was not enough, because the file outlives the terminal.
+
+Also fixed: `PHASE_6_TESTING.md` §5 told the operator to `git -C $DEMO add` in a
+directory `flint init` never made a repository. `flint pr` refused correctly —
+that was a guide defect, not a Flint one.
+
+Tests: 942 across 68 files (+19).

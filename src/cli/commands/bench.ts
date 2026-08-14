@@ -15,7 +15,9 @@ import { listFeatureIds, readFeatureSpec } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
 import { ownedSpecFiles } from '../../planner/supersede.js';
 import { hideSupersededTests } from '../../planner/hide-superseded.js';
-import { planHistoryCoverage, planPath, writePlan } from '../../planner/store.js';
+import { sessionCoverage } from '../../planner/session-coverage.js';
+import { planPath, writePlan } from '../../planner/store.js';
+import type { TestPlan } from '../../schemas/test-plan.js';
 import type { ExemplarFile } from '../../planner/context-builder.js';
 import { emitBatch, type BatchFeature } from '../../generator/batch.js';
 import { resolveDialect } from '../../generator/dialects/index.js';
@@ -27,6 +29,7 @@ import {
 import { applyWrites, planWrites } from '../../integrator/writer.js';
 import { runCompileGate } from '../../integrator/gate.js';
 import { discoverSuiteFiles } from '../../integrator/suite-files.js';
+import { divertDeadlockAdvice } from '../../integrator/divert-deadlock.js';
 import { checkHealth } from '../../verifier/health.js';
 import { runSuite } from '../../verifier/runner.js';
 import { assembleRunReport, newRunId, passRate } from '../../verifier/report.js';
@@ -36,6 +39,7 @@ import {
   assembleBench,
   formatBaseline,
   pct,
+  provisionalReasons,
   type FeatureInput,
   type StageTiming,
 } from '../../bench/metrics.js';
@@ -133,6 +137,10 @@ async function runBench(opts: BenchOptions): Promise<void> {
 
   const batchFeatures: BatchFeature[] = [];
   const perFeatureCalls = new Map<string, number>();
+  // Held in memory and persisted only if the gate passes — same reason as `ci`:
+  // a stored plan is a claim that its tests exist, and a benchmark run that
+  // fails the gate writes no tests.
+  const planned = new Map<string, TestPlan>();
 
   await stage('plan', async () => {
     for (const featureId of featureIds) {
@@ -142,7 +150,12 @@ async function runBench(opts: BenchOptions): Promise<void> {
         projectRoot,
         suiteDir: config.suiteDir,
         logger,
-        planHistory: planHistoryCoverage(projectRoot, { excludeFeature: spec.frontmatter.id }),
+        planHistory: sessionCoverage({
+          projectRoot,
+          runFeatures: featureIds,
+          planned,
+          excludeFeature: spec.frontmatter.id,
+        }),
       }).index;
       const owned = ownedSpecFiles(scanned, spec.frontmatter.id);
       const index = hideSupersededTests(scanned, spec.frontmatter.id);
@@ -161,7 +174,7 @@ async function runBench(opts: BenchOptions): Promise<void> {
           : {}),
       });
 
-      if (opts.write) writePlan(planPath(projectRoot, spec.frontmatter.id), result.plan);
+      planned.set(spec.frontmatter.id, result.plan);
       batchFeatures.push({
         featureId: spec.frontmatter.id,
         plan: result.plan,
@@ -202,6 +215,21 @@ async function runBench(opts: BenchOptions): Promise<void> {
     applyWrites(suiteRoot, decisions, logger);
     const liveElementIds = new Set(model.pages.flatMap((p) => p.elements.map((e) => e.id)));
     writePageObjectRecords(projectRoot, pruneToModel(batch.pageObjectRecords, liveElementIds));
+    for (const [id, plan] of planned) writePlan(planPath(projectRoot, id), plan);
+  }
+
+  if (!gate.ok) {
+    say('');
+    say('The generated suite does not typecheck, so nothing was written:');
+    for (const line of gate.errors.slice(0, 10)) say(`  ${line}`);
+    if (gate.errors.length > 10) say(`  … and ${gate.errors.length - 10} more`);
+    for (const line of divertDeadlockAdvice({
+      decisions,
+      errors: gate.errors,
+      suiteDir: config.suiteDir,
+    })) {
+      say(line);
+    }
   }
 
   // ---- verify: first run, then repair ------------------------------------
@@ -306,6 +334,8 @@ async function runBench(opts: BenchOptions): Promise<void> {
     say(`Selector re-resolve rate  ${pct(report.selectorResolveRate)}`);
   }
 
+  const provisional = provisionalReasons(report);
+
   if (opts.write) {
     const out = resolve(projectRoot, opts.out);
     mkdirSync(dirname(out), { recursive: true });
@@ -313,6 +343,15 @@ async function runBench(opts: BenchOptions): Promise<void> {
     writeFileSync(out.replace(/\.md$/, '.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     say('');
     say(`Baseline written to ${displayPath(out)}`);
+    // The file says so too, at the top. Saying it here as well is what stops a
+    // failed run from being committed as "the baseline" by someone who only
+    // read the terminal.
+    if (provisional.length > 0) {
+      say('');
+      say('⚠️  This is NOT a usable baseline — the run did not complete cleanly:');
+      for (const reason of provisional) say(`      ${reason}`);
+      say('    The file is marked provisional. Fix the run and re-run `flint bench`.');
+    }
   }
 
   // A benchmark that could not measure the thing being benchmarked is not a

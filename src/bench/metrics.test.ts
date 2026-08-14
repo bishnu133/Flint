@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleBench, formatBaseline, pct } from './metrics.js';
+import { assembleBench, formatBaseline, pct, provisionalReasons } from './metrics.js';
 import type { RecordedCall } from './recorder.js';
 
 /**
@@ -130,5 +130,51 @@ describe('formatBaseline', () => {
     );
     expect(text).toContain('had no price');
     expect(text).toContain('mystery');
+  });
+
+  it('marks a run whose gate failed as provisional, above the numbers', () => {
+    // A file called "V1 benchmark baseline" gets quoted later by people who
+    // never saw the run log. The warning has to be in the file, before the
+    // headline table.
+    const text = formatBaseline(
+      bench({ features: [feature({ compiled: false })], firstRunPass: 0.9 }),
+    );
+    expect(text).toContain('Provisional — do not quote this as the V1 baseline');
+    expect(text.indexOf('Provisional')).toBeLessThan(text.indexOf('## Headline'));
+    expect(text).toContain('nothing was written for them');
+  });
+
+  it('marks a run that never executed the suite as provisional', () => {
+    const text = formatBaseline(bench());
+    expect(text).toContain('the suite was never run');
+  });
+
+  it('says nothing when the run was clean', () => {
+    const text = formatBaseline(bench({ firstRunPass: 0.9, postRepairPass: 1 }));
+    expect(text).not.toContain('Provisional');
+  });
+});
+
+describe('provisionalReasons', () => {
+  it('is empty for a complete run', () => {
+    expect(provisionalReasons(bench({ firstRunPass: 1, postRepairPass: 1 }))).toEqual([]);
+  });
+
+  it('flags a partial compile rate with the share that failed', () => {
+    const reasons = provisionalReasons(
+      bench({
+        features: [feature(), feature({ featureId: 'cart', compiled: false })],
+        firstRunPass: 1,
+        postRepairPass: 1,
+      }),
+    );
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toContain('50.0%');
+  });
+
+  it('flags a missing repair pass separately from a missing run', () => {
+    expect(provisionalReasons(bench({ firstRunPass: 1 }))[0]).toContain('repair pass did not run');
+    // No first run at all is the bigger problem, and reported instead of both.
+    expect(provisionalReasons(bench())[0]).toContain('suite was never run');
   });
 });

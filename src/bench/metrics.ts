@@ -141,6 +141,29 @@ export function assembleBench(options: AssembleOptions): BenchReport {
   };
 }
 
+/**
+ * Why this baseline should not be treated as the number V2 must beat.
+ *
+ * A run whose compile gate failed writes no code, so its pass rates measure a
+ * suite that was never generated — and a document titled "V1 benchmark baseline"
+ * is exactly the artefact somebody quotes a year later without reading the run
+ * log. Empty means the baseline is sound.
+ */
+export function provisionalReasons(report: BenchReport): string[] {
+  const reasons: string[] = [];
+  if (report.compileRate < 1) {
+    reasons.push(
+      `the compile gate rejected ${pct(1 - report.compileRate)} of the features, so nothing was written for them`,
+    );
+  }
+  if (report.firstRunPass === undefined) {
+    reasons.push('the suite was never run, so the headline pass rate is not a measurement');
+  } else if (report.postRepairPass === undefined) {
+    reasons.push('the repair pass did not run, so the post-repair rate is not a measurement');
+  }
+  return reasons;
+}
+
 /** `0.917` -> `91.7%`; absent -> `not measured`. */
 export function pct(value: number | undefined): string {
   return value === undefined ? 'not measured' : `${(value * 100).toFixed(1)}%`;
@@ -166,6 +189,21 @@ export function formatBaseline(report: BenchReport): string {
     '_not measured_ was not run — it is a gap in this baseline, not a zero.',
     '',
   );
+
+  // Before the numbers, not in a footnote. Somebody skimming for the headline
+  // table must not reach it without knowing the run that produced it failed.
+  const provisional = provisionalReasons(report);
+  if (provisional.length > 0) {
+    lines.push('> ## ⚠️ Provisional — do not quote this as the V1 baseline', '>');
+    lines.push('> This run did not complete cleanly:', '>');
+    for (const reason of provisional) lines.push(`> - ${reason}`);
+    lines.push(
+      '>',
+      '> Fix the run, re-run `flint bench`, and replace this file. The numbers below',
+      '> describe what happened, which is not the same as what the pipeline achieves.',
+      '',
+    );
+  }
 
   lines.push('## Headline', '');
   lines.push('| Metric | Value |', '| --- | --- |');

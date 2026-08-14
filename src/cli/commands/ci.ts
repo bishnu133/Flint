@@ -14,7 +14,9 @@ import { listFeatureIds, readFeatureSpec } from '../../planner/feature-spec.js';
 import { generatePlan } from '../../planner/planner.js';
 import { ownedSpecFiles } from '../../planner/supersede.js';
 import { hideSupersededTests } from '../../planner/hide-superseded.js';
-import { planHistoryCoverage, planPath, writePlan } from '../../planner/store.js';
+import { sessionCoverage } from '../../planner/session-coverage.js';
+import { planPath, writePlan } from '../../planner/store.js';
+import type { TestPlan } from '../../schemas/test-plan.js';
 import type { ExemplarFile } from '../../planner/context-builder.js';
 import { emitBatch, type BatchFeature } from '../../generator/batch.js';
 import { resolveDialect } from '../../generator/dialects/index.js';
@@ -24,6 +26,7 @@ import { applyWrites, planWrites } from '../../integrator/writer.js';
 import { runCompileGate } from '../../integrator/gate.js';
 import { discoverSuiteFiles } from '../../integrator/suite-files.js';
 import { emptiedSpecs, ownedByRun, testsInOwnedSpecs } from '../../integrator/shrink-guard.js';
+import { divertDeadlockAdvice } from '../../integrator/divert-deadlock.js';
 import { checkHealth } from '../../verifier/health.js';
 import { runSuite } from '../../verifier/runner.js';
 import {
@@ -168,13 +171,25 @@ async function runCi(opts: CiOptions): Promise<void> {
   const baseline = scanSuite({ projectRoot, suiteDir: config.suiteDir, logger }).index;
   const testsBefore = testsInOwnedSpecs(baseline, ownedByRun(baseline, featureIds));
 
+  // Plans are held here until the suite is actually written. Persisting them
+  // inside this loop — which is what `ci` used to do — leaves plans on disk
+  // claiming coverage for tests a failed gate never generated; `explore --diff`
+  // then reports those tests as `(file unknown)`. The plan is a record of what
+  // was generated, so it is written when something is.
+  const planned = new Map<string, TestPlan>();
+
   for (const featureId of featureIds) {
     const spec = readFeatureSpec(projectRoot, config.kbDir, featureId);
     const scanned = scanSuite({
       projectRoot,
       suiteDir: config.suiteDir,
       logger,
-      planHistory: planHistoryCoverage(projectRoot, { excludeFeature: spec.frontmatter.id }),
+      planHistory: sessionCoverage({
+        projectRoot,
+        runFeatures: featureIds,
+        planned,
+        excludeFeature: spec.frontmatter.id,
+      }),
     }).index;
     const owned = ownedSpecFiles(scanned, spec.frontmatter.id);
     // Hides the feature's own generated tests from BOTH places the planner sees
@@ -197,7 +212,7 @@ async function runCi(opts: CiOptions): Promise<void> {
         : {}),
     });
 
-    writePlan(planPath(projectRoot, spec.frontmatter.id), result.plan);
+    planned.set(spec.frontmatter.id, result.plan);
     batchFeatures.push({
       featureId: spec.frontmatter.id,
       plan: result.plan,
@@ -273,8 +288,9 @@ async function runCi(opts: CiOptions): Promise<void> {
       say('Usually that means the planner was shown the very tests it was regenerating.');
     }
     say('');
-    say('Check the plans under .flint/plans, then either fix the feature spec or');
-    say('re-run with --allow-empty if those tests really should go.');
+    say('The plans were not saved either — a stored plan claims coverage, and this');
+    say('one covers nothing. Fix the feature spec, or re-run with --allow-empty if');
+    say('those tests really should go.');
     summary.failedStage = 'shrink';
     finish(summary, opts, say);
     return;
@@ -295,6 +311,17 @@ async function runCi(opts: CiOptions): Promise<void> {
     say('The generated suite does not typecheck; nothing was written:');
     for (const line of gate.errors.slice(0, 20)) say(`  ${line}`);
     if (gate.errors.length > 20) say(`  … and ${gate.errors.length - 20} more`);
+    // A hand-edited page object makes this failure permanent: the specs are
+    // generated against Flint's version and checked against the operator's, and
+    // no amount of re-running changes that. Say so, or the same wall of TS2551
+    // appears on every run with nothing pointing at the cause.
+    for (const line of divertDeadlockAdvice({
+      decisions,
+      errors: gate.errors,
+      suiteDir: config.suiteDir,
+    })) {
+      say(line);
+    }
     summary.failedStage = 'gate';
     finish(summary, opts, say);
     return;
@@ -303,6 +330,10 @@ async function runCi(opts: CiOptions): Promise<void> {
   const applied = applyWrites(suiteRoot, decisions, logger);
   const liveElementIds = new Set(model.pages.flatMap((p) => p.elements.map((e) => e.id)));
   writePageObjectRecords(projectRoot, pruneToModel(batch.pageObjectRecords, liveElementIds));
+  // Only now. Downstream readers — drift analysis, the next run's dedupe —
+  // treat a stored plan as a claim that its tests exist, so it must not outlive
+  // a run that wrote nothing.
+  for (const [featureId, plan] of planned) writePlan(planPath(projectRoot, featureId), plan);
   summary.filesWritten = applied.written;
 
   say('');
