@@ -71,19 +71,19 @@ flint explore ─────┘     (LLM)   (deterministic)   (tsc)            
    └─▶ .flint/screen-model/model.json
 ```
 
-**Explore** drives a browser through the app and records a *Screen Model*: every
+**Explore** drives a browser through the app and records a _Screen Model_: every
 page, every interactive element, and a ranked list of selectors for each — each
 one verified unique against the live DOM. Nothing downstream ever guesses a
 selector.
 
 **Plan** turns one feature spec plus the relevant slice of the Screen Model into
 a `TestPlan`: test cases, steps, assertions, all referencing real element ids.
-This is the one stage where a model decides *what to test*.
+This is the one stage where a model decides _what to test_.
 
 **Generate** turns the plan into page objects and specs. It is a deterministic
 emitter, not a model — the same plan and model produce byte-identical files.
 
-**The compile gate** typechecks the generated suite *before* anything is
+**The compile gate** typechecks the generated suite _before_ anything is
 written. If it does not compile, nothing is written at all. A suite is never
 left in a state Flint knows is broken.
 
@@ -95,19 +95,19 @@ what it cannot fix with a `fixme` explaining why.
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `flint init` | Scaffold `flint.config.ts`, `kb/`, and an `e2e/` Playwright project |
-| `flint explore` | Build the Screen Model from the live app |
-| `flint explore --diff` | Re-crawl and report drift — **and which tests it breaks** |
-| `flint explore --diff --fix-page-objects` | Re-point page objects at a changed UI, specs untouched |
-| `flint explore --validate` | Re-resolve every stored selector; fail below a threshold |
-| `flint index` | Scan an existing suite (page objects, specs, coverage) |
-| `flint plan <feature>` | Plan one feature |
-| `flint generate <feature>` | Generate one feature's code |
-| `flint verify [--repair]` | Run the suite, classify failures, optionally repair |
-| `flint ci` | The whole pipeline in one command, headless, `--json` for CI |
-| `flint bench` | Measure the pipeline and write a baseline |
+| Command                                   | What it does                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------- |
+| `flint init`                              | Scaffold `flint.config.ts`, `kb/`, and an `e2e/` Playwright project |
+| `flint explore`                           | Build the Screen Model from the live app                            |
+| `flint explore --diff`                    | Re-crawl and report drift — **and which tests it breaks**           |
+| `flint explore --diff --fix-page-objects` | Re-point page objects at a changed UI, specs untouched              |
+| `flint explore --validate`                | Re-resolve every stored selector; fail below a threshold            |
+| `flint index`                             | Scan an existing suite (page objects, specs, coverage)              |
+| `flint plan <feature>`                    | Plan one feature                                                    |
+| `flint generate <feature>`                | Generate one feature's code                                         |
+| `flint verify [--repair]`                 | Run the suite, classify failures, optionally repair                 |
+| `flint ci`                                | The whole pipeline in one command, headless, `--json` for CI        |
+| `flint bench`                             | Measure the pipeline and write a baseline                           |
 
 `--dir <path>` and `--help` work on all of them.
 
@@ -184,7 +184,7 @@ produces something worse:
 - **It will not call a test "passing" because it did not run.** Skipped,
   `fixme`, and flaky are counted and reported separately from passed.
 - **It will not repair the application's bugs.** Assertion mismatches are
-  surfaced as *possible real defects*, not patched away.
+  surfaced as _possible real defects_, not patched away.
 
 ---
 
@@ -198,6 +198,6 @@ pnpm lint     # eslint
 
 `PHASE_NOTES.md` is the running log of decisions, deviations, and defects found
 — including the ones found by running Flint against a real app. It is the most
-useful file in the repo for understanding *why* something is the way it is.
+useful file in the repo for understanding _why_ something is the way it is.
 
 The full specification is `reference/docs/flint-master-development-plan.md`.

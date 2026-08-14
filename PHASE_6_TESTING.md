@@ -173,7 +173,7 @@ pnpm cli ci --dir $DEMO
 ## 4. The refusal path (optional, 2 minutes)
 
 The interesting half of `--fix-page-objects` is what it does when a re-point
-*cannot* work. Delete an element from the stored model instead of renaming it:
+_cannot_ work. Delete an element from the stored model instead of renaming it:
 
 ```bash
 cp $DEMO/.flint/screen-model/model.json /tmp/flint-model.backup.json

@@ -56,18 +56,18 @@ dismissed with an × button.
 
 ### Frontmatter fields
 
-| Field | Required | Default | What it does |
-| --- | :---: | --- | --- |
-| `id` | ✅ | — | Stable identifier, kebab-case. Becomes the `@feature:<id>` tag on every generated test, the spec filename (`<id>.spec.ts`), and the key in the coverage map. **Changing it orphans the previous tests** — Flint will no longer recognise them as this feature's. |
-| `title` | ✅ | — | Human title. Becomes the `describe` block. |
-| `priority` | | `p1` | `p0` \| `p1` \| `p2`. Advisory: use it to decide what gets human review. |
-| `pages` | | — | URL or `urlPattern` hints. Narrows which Screen Model pages the planner is shown, which raises plan quality and cuts tokens on a large app. Omit it and Flint matches pages heuristically. |
-| `flows` | | — | Flow-script ids relevant to this feature (see below). |
-| `tags` | | `[]` | Extra Playwright tags on every generated test — `@smoke`, `@slow`, whatever you grep by. |
-| `acceptanceCriteria` | | — | **The highest-leverage field.** The planner is asked to cover each one, and the plan renderer shows you which are covered. Write them as observable outcomes, not implementation steps. |
-| `negativeCases` | | — | Failure paths you explicitly want covered. Without this the planner writes mostly happy paths. |
-| `dataNeeds` | | — | Prerequisites the app must already have. A case whose data need cannot be met is emitted as `test.fixme` tagged `@needs-setup` rather than as a passing test that silently does nothing. |
-| `status` | | `draft` | `draft` \| `ready` \| `generated`. Advisory. |
+| Field                | Required | Default | What it does                                                                                                                                                                                                                                                     |
+| -------------------- | :------: | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                 |    ✅    | —       | Stable identifier, kebab-case. Becomes the `@feature:<id>` tag on every generated test, the spec filename (`<id>.spec.ts`), and the key in the coverage map. **Changing it orphans the previous tests** — Flint will no longer recognise them as this feature's. |
+| `title`              |    ✅    | —       | Human title. Becomes the `describe` block.                                                                                                                                                                                                                       |
+| `priority`           |          | `p1`    | `p0` \| `p1` \| `p2`. Advisory: use it to decide what gets human review.                                                                                                                                                                                         |
+| `pages`              |          | —       | URL or `urlPattern` hints. Narrows which Screen Model pages the planner is shown, which raises plan quality and cuts tokens on a large app. Omit it and Flint matches pages heuristically.                                                                       |
+| `flows`              |          | —       | Flow-script ids relevant to this feature (see below).                                                                                                                                                                                                            |
+| `tags`               |          | `[]`    | Extra Playwright tags on every generated test — `@smoke`, `@slow`, whatever you grep by.                                                                                                                                                                         |
+| `acceptanceCriteria` |          | —       | **The highest-leverage field.** The planner is asked to cover each one, and the plan renderer shows you which are covered. Write them as observable outcomes, not implementation steps.                                                                          |
+| `negativeCases`      |          | —       | Failure paths you explicitly want covered. Without this the planner writes mostly happy paths.                                                                                                                                                                   |
+| `dataNeeds`          |          | —       | Prerequisites the app must already have. A case whose data need cannot be met is emitted as `test.fixme` tagged `@needs-setup` rather than as a passing test that silently does nothing.                                                                         |
+| `status`             |          | `draft` | `draft` \| `ready` \| `generated`. Advisory.                                                                                                                                                                                                                     |
 
 ### Writing acceptance criteria that produce good tests
 
@@ -75,11 +75,11 @@ The planner turns each criterion into one or more test cases. The difference
 between a useful criterion and a useless one is whether it names an **observable
 outcome**:
 
-| Weak | Strong |
-| --- | --- |
-| "Login works" | "A user with valid credentials reaches the products page" |
-| "Errors are handled" | "An unknown username shows 'Username and password do not match'" |
-| "The cart is correct" | "The cart lists each added item with its name and price" |
+| Weak                  | Strong                                                           |
+| --------------------- | ---------------------------------------------------------------- |
+| "Login works"         | "A user with valid credentials reaches the products page"        |
+| "Errors are handled"  | "An unknown username shows 'Username and password do not match'" |
+| "The cart is correct" | "The cart lists each added item with its name and price"         |
 
 A criterion Flint cannot observe in the Screen Model — something about a
 database row, an email, a log line — will come back as a `blocked` case with the
@@ -173,7 +173,7 @@ Two behaviours worth knowing, because they surprise people:
 you re-plan a feature, Flint hides the tests it generated for that feature last
 time. Otherwise the planner sees its own previous output as prior art, marks
 everything a duplicate, and the next generate writes an empty spec. Tests in
-files *you* have edited are treated as real prior art and are never hidden —
+files _you_ have edited are treated as real prior art and are never hidden —
 editing a generated file is how you tell Flint to defer to you.
 
 **Data needs are honoured, not assumed.** A case whose `dataNeeds` cannot be

@@ -2451,3 +2451,42 @@ Flags: `--feature <id...>`, `--out <path>`, `--validate`, `--no-repair`,
 Tests: 16 (11 metrics, 5 recorder). The baseline itself is not committed yet —
 it has to come from a live run against the demo app, which is the operator's
 machine, not this sandbox.
+
+### 6.4 Docs
+
+`README.md`, `docs/kb-authoring.md`, `docs/config-reference.md`.
+
+The exit criterion is that **a stranger can onboard from the README alone**, so
+the README is a runnable path — install, `init`, `explore`, `ci` — not a feature
+tour. It leads with the two things that actually stop a newcomer, both learned
+from the operator's own runs rather than guessed:
+
+- run commands **from the Flint checkout** with `--dir`, which was the first
+  live failure of Phase 5 and cost two rounds to diagnose;
+- set `explorer.testIdAttribute` before the first real run, because getting it
+  wrong fails **silently** into role and CSS selectors.
+
+The "What Flint will not do" section is deliberate. Every entry is a refusal
+that exists because the alternative silently produces something worse — no
+non-test exploration, no writing code that does not compile, no overwriting
+hand edits, no erasing a spec, no counting a test that did not run as passing,
+no patching over what may be a real application defect. A user who reads only
+that section still knows the shape of the tool.
+
+The KB guide covers what exploration cannot discover: intent. Frontmatter
+table, a weak-vs-strong contrast for acceptance criteria (the highest-leverage
+field), flow scripts for states no link reaches, and the two behaviours that
+surprise people — superseding a feature's own previous tests, and data needs
+becoming `fixme` rather than silent passes.
+
+The config reference gives every key its default **and what it costs to get
+wrong**. `testIdAttribute` and `envClass` get their own sections: the first
+fails silently, the second is a safety rail with no override flag. It also
+settles which `.flint` files to commit (model, plans, page-object record: yes;
+run reports: no), which had not been written down anywhere.
+
+**Note on `pnpm format:check`.** It fails on `PHASE_NOTES.md` and did so before
+this phase — the file predates the prettier config and reformatting 2,400 lines
+of history would destroy the diff that makes it useful. The definition of done
+is `test`, `build`, `lint`, all of which are green. The new docs are
+prettier-clean.

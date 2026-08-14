@@ -24,18 +24,18 @@ with a message naming the bad key — never a stack trace.
 
 ## Top level
 
-| Key | Required | Default | Notes |
-| --- | :---: | --- | --- |
-| `baseUrl` | ✅ | — | Absolute URL of the app. Also passed to the generated suite as `BASE_URL`, so changing it re-points the tests without regenerating them. |
-| `envClass` | ✅ | — | `test` \| `dev` \| `staging` \| `production`. **`flint explore` refuses anything but `test`.** |
-| `suiteDir` | | `e2e` | Where the generated suite lives, relative to the project root. |
-| `kbDir` | | `kb` | Where the knowledge base lives. |
-| `dialect` | | `playwright-pom` | Code-emission style. `bubblegum` is reserved and not implemented in V1. |
-| `auth` | | `{ mode: 'none' }` | See below. |
-| `explorer` | | see below | Crawl behaviour and selector strategy. |
-| `models` | ✅ | — | Which model runs which stage. |
-| `tokenBudgets` | | see below | Context budgets per stage. |
-| `debug` | | `{}` | Logging. |
+| Key            | Required | Default            | Notes                                                                                                                                    |
+| -------------- | :------: | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `baseUrl`      |    ✅    | —                  | Absolute URL of the app. Also passed to the generated suite as `BASE_URL`, so changing it re-points the tests without regenerating them. |
+| `envClass`     |    ✅    | —                  | `test` \| `dev` \| `staging` \| `production`. **`flint explore` refuses anything but `test`.**                                           |
+| `suiteDir`     |          | `e2e`              | Where the generated suite lives, relative to the project root.                                                                           |
+| `kbDir`        |          | `kb`               | Where the knowledge base lives.                                                                                                          |
+| `dialect`      |          | `playwright-pom`   | Code-emission style. `bubblegum` is reserved and not implemented in V1.                                                                  |
+| `auth`         |          | `{ mode: 'none' }` | See below.                                                                                                                               |
+| `explorer`     |          | see below          | Crawl behaviour and selector strategy.                                                                                                   |
+| `models`       |    ✅    | —                  | Which model runs which stage.                                                                                                            |
+| `tokenBudgets` |          | see below          | Context budgets per stage.                                                                                                               |
+| `debug`        |          | `{}`               | Logging.                                                                                                                                 |
 
 ### `envClass` is a safety rail, not a label
 
@@ -50,11 +50,16 @@ there is no override flag.
 
 A discriminated union on `mode`. Exploration and the generated suite both use it.
 
+Pick one shape — each is the whole `auth` value:
+
+<!-- prettier-ignore -->
 ```ts
 auth: { mode: 'none' }
-```
 
-```ts
+auth: { mode: 'storageState', storageStatePath: './.auth/state.json' }
+
+auth: { mode: 'loginScript', loginScriptPath: './scripts/login.ts' }
+
 auth: {
   mode: 'credentials',
   username: process.env.APP_USER ?? '',
@@ -63,20 +68,12 @@ auth: {
 }
 ```
 
-```ts
-auth: { mode: 'storageState', storageStatePath: './.auth/state.json' }
-```
-
-```ts
-auth: { mode: 'loginScript', loginScriptPath: './scripts/login.ts' }
-```
-
-| Mode | When to use it |
-| --- | --- |
-| `none` | The app needs no sign-in, or you only care about anonymous pages. |
-| `credentials` | A conventional username/password form. Flint finds the fields and submits. |
-| `storageState` | You already have a Playwright storage-state file (SSO, MFA, anything scripted elsewhere). |
-| `loginScript` | Sign-in is bespoke enough to need code. Your script gets a `page` and must leave it authenticated. |
+| Mode           | When to use it                                                                                     |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| `none`         | The app needs no sign-in, or you only care about anonymous pages.                                  |
+| `credentials`  | A conventional username/password form. Flint finds the fields and submits.                         |
+| `storageState` | You already have a Playwright storage-state file (SSO, MFA, anything scripted elsewhere).          |
+| `loginScript`  | Sign-in is bespoke enough to need code. Your script gets a `page` and must leave it authenticated. |
 
 **Never commit real credentials.** Read them from the environment, as above.
 
@@ -88,20 +85,20 @@ auth: { mode: 'loginScript', loginScriptPath: './scripts/login.ts' }
 
 ## `explorer`
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `testIdAttribute` | `data-testid` | **The single most consequential setting.** See below. |
-| `maxPages` | `50` | Crawl budget. |
-| `maxDepth` | `5` | Link depth from the entry point. |
-| `mode` | `crawl` | `agent` and `crawl-then-agent` are V2; the enum is stable so config written today keeps parsing. |
-| `waitStrategy` | `networkidle` | `networkidle` \| `domcontentloaded` \| `load`. Lower it for apps that poll — `networkidle` never settles when something long-polls. |
-| `dangerousActionPatterns` | `['logout', 'delete', 'submit', 'pay', 'remove']` | Buttons matching these are never clicked during exploration. Add anything destructive in your domain. |
-| `i18n` | `false` | When true, text-derived selector strategies are demoted, because visible copy changes per locale. |
-| `roles` | `[]` | Build a separate Screen Model per named role. Empty means one anonymous model. |
-| `captchaPatterns` | `[]` | Page markers that mean "bot-blocked", so a challenge page is reported rather than modelled as a real screen. |
-| `urlPatterns.include` | `[]` | Only crawl URLs matching these. Empty means everything same-origin. |
-| `urlPatterns.exclude` | `[]` | Never crawl URLs matching these. |
-| `urlPatterns.normalize` | `[]` | `{ pattern, replacement }` rules that collapse parameterised URLs so `/order/1`, `/order/2`… are one page, not fifty. |
+| Key                       | Default                                           | Notes                                                                                                                               |
+| ------------------------- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `testIdAttribute`         | `data-testid`                                     | **The single most consequential setting.** See below.                                                                               |
+| `maxPages`                | `50`                                              | Crawl budget.                                                                                                                       |
+| `maxDepth`                | `5`                                               | Link depth from the entry point.                                                                                                    |
+| `mode`                    | `crawl`                                           | `agent` and `crawl-then-agent` are V2; the enum is stable so config written today keeps parsing.                                    |
+| `waitStrategy`            | `networkidle`                                     | `networkidle` \| `domcontentloaded` \| `load`. Lower it for apps that poll — `networkidle` never settles when something long-polls. |
+| `dangerousActionPatterns` | `['logout', 'delete', 'submit', 'pay', 'remove']` | Buttons matching these are never clicked during exploration. Add anything destructive in your domain.                               |
+| `i18n`                    | `false`                                           | When true, text-derived selector strategies are demoted, because visible copy changes per locale.                                   |
+| `roles`                   | `[]`                                              | Build a separate Screen Model per named role. Empty means one anonymous model.                                                      |
+| `captchaPatterns`         | `[]`                                              | Page markers that mean "bot-blocked", so a challenge page is reported rather than modelled as a real screen.                        |
+| `urlPatterns.include`     | `[]`                                              | Only crawl URLs matching these. Empty means everything same-origin.                                                                 |
+| `urlPatterns.exclude`     | `[]`                                              | Never crawl URLs matching these.                                                                                                    |
+| `urlPatterns.normalize`   | `[]`                                              | `{ pattern, replacement }` rules that collapse parameterised URLs so `/order/1`, `/order/2`… are one page, not fifty.               |
 
 ### `testIdAttribute` — get this right first
 
@@ -115,7 +112,9 @@ exactly the fragility the ranking exists to avoid. Nothing errors; the suite is
 just quietly more brittle.
 
 ```ts
-explorer: { testIdAttribute: 'data-test' }
+explorer: {
+  testIdAttribute: 'data-test';
+}
 ```
 
 Changing it later re-hashes every element id (ids are derived from stable facts
@@ -142,11 +141,11 @@ before it reaches checkout.
 
 ## `models`
 
-| Key | Required | Used by |
-| --- | :---: | --- |
-| `planner` | ✅ | `flint plan`, and the planning phase of `ci` / `bench` |
-| `coder` | ✅ | Reserved. V1's emitter is deterministic and makes no model calls. |
-| `repair` | ✅ | `flint verify --repair`, after the deterministic selector retry has nothing left to try |
+| Key       | Required | Used by                                                                                 |
+| --------- | :------: | --------------------------------------------------------------------------------------- |
+| `planner` |    ✅    | `flint plan`, and the planning phase of `ci` / `bench`                                  |
+| `coder`   |    ✅    | Reserved. V1's emitter is deterministic and makes no model calls.                       |
+| `repair`  |    ✅    | `flint verify --repair`, after the deterministic selector retry has nothing left to try |
 
 ```ts
 models: {
@@ -165,11 +164,11 @@ Repair runs rarely and only after the deterministic path is exhausted.
 
 Context budgets, in tokens, for the **prompt** each stage builds.
 
-| Key | Default | Notes |
-| --- | --- | --- |
-| `plan` | `60000` | How much Screen Model and suite context the planner is shown. Raise it for large apps; lower it to cut cost. |
-| `generate` | `40000` | Reserved for a model-driven emitter. |
-| `repair` | `30000` | Context given to the repair model per failing test. |
+| Key        | Default | Notes                                                                                                        |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `plan`     | `60000` | How much Screen Model and suite context the planner is shown. Raise it for large apps; lower it to cut cost. |
+| `generate` | `40000` | Reserved for a model-driven emitter.                                                                         |
+| `repair`   | `30000` | Context given to the repair model per failing test.                                                          |
 
 > These are **input** budgets. They do not cap the model's output — if a plan
 > comes back truncated, that is the output ceiling, not this.
@@ -178,33 +177,33 @@ Context budgets, in tokens, for the **prompt** each stage builds.
 
 ## `debug`
 
-| Key | Default | Notes |
-| --- | --- | --- |
+| Key          | Default | Notes                                                                                                       |
+| ------------ | ------- | ----------------------------------------------------------------------------------------------------------- |
 | `logPrompts` | `false` | Log raw prompts. **Off by default because prompts contain your app's content and may contain credentials.** |
-| `verbose` | `false` | Verbose logging. `-v` on any command does the same thing per-run. |
+| `verbose`    | `false` | Verbose logging. `-v` on any command does the same thing per-run.                                           |
 
 ---
 
 ## Environment variables
 
-| Variable | Needed by | Notes |
-| --- | --- | --- |
-| `ANTHROPIC_API_KEY` | `plan`, `ci`, `bench`, `verify --repair` | Without it, `verify --repair` degrades to the deterministic selector retry and says so, rather than failing. |
-| `BASE_URL` | the generated suite | Set by Flint when it runs the suite; set it yourself to point the same tests at another environment. |
-| `FLINT_BROWSER_EXECUTABLE` | exploration | Path to a Chromium binary, when Playwright's own download is unavailable. |
-| `NODE_OPTIONS=--use-system-ca` | corporate networks | Needed behind a TLS-inspecting proxy. **Never use `NODE_TLS_REJECT_UNAUTHORIZED=0`** — it disables certificate verification entirely. |
+| Variable                       | Needed by                                | Notes                                                                                                                                 |
+| ------------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`            | `plan`, `ci`, `bench`, `verify --repair` | Without it, `verify --repair` degrades to the deterministic selector retry and says so, rather than failing.                          |
+| `BASE_URL`                     | the generated suite                      | Set by Flint when it runs the suite; set it yourself to point the same tests at another environment.                                  |
+| `FLINT_BROWSER_EXECUTABLE`     | exploration                              | Path to a Chromium binary, when Playwright's own download is unavailable.                                                             |
+| `NODE_OPTIONS=--use-system-ca` | corporate networks                       | Needed behind a TLS-inspecting proxy. **Never use `NODE_TLS_REJECT_UNAUTHORIZED=0`** — it disables certificate verification entirely. |
 
 ---
 
 ## Files Flint writes
 
-| Path | What it is | Commit it? |
-| --- | --- | --- |
-| `.flint/screen-model/model.json` | The Screen Model | Yes — it is the input every other stage reads, and diffing it is how you see drift |
-| `.flint/plans/<id>.plan.json` | Stored plans | Yes |
-| `.flint/plans/<id>.plan.md` | Human-readable plan | Yes |
-| `.flint/page-objects.json` | Which element ids each page object exposes | Yes — without it, regenerating one feature drops another's locators |
-| `.flint/suite-index.json` | Static scan of the suite | Optional; regenerated by `flint index` |
-| `.flint/reports/*.json` | Run reports | No — add to `.gitignore` |
-| `<suiteDir>/**` | The generated suite | Yes |
-| `benchmarks/baseline.md` | `flint bench` output | Yes |
+| Path                             | What it is                                 | Commit it?                                                                         |
+| -------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------- |
+| `.flint/screen-model/model.json` | The Screen Model                           | Yes — it is the input every other stage reads, and diffing it is how you see drift |
+| `.flint/plans/<id>.plan.json`    | Stored plans                               | Yes                                                                                |
+| `.flint/plans/<id>.plan.md`      | Human-readable plan                        | Yes                                                                                |
+| `.flint/page-objects.json`       | Which element ids each page object exposes | Yes — without it, regenerating one feature drops another's locators                |
+| `.flint/suite-index.json`        | Static scan of the suite                   | Optional; regenerated by `flint index`                                             |
+| `.flint/reports/*.json`          | Run reports                                | No — add to `.gitignore`                                                           |
+| `<suiteDir>/**`                  | The generated suite                        | Yes                                                                                |
+| `benchmarks/baseline.md`         | `flint bench` output                       | Yes                                                                                |
