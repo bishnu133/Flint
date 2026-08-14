@@ -2785,3 +2785,41 @@ differ in cost, and the third is the one that also fixes the ~$0.45 every `ci`
 currently spends re-planning work it already has on disk.
 
 Tests: 961 across 70 files (+4).
+
+### 6.10 Plan cache (2026-08-14)
+
+Approved by the operator. `flint ci` now reuses a feature's stored plan when
+nothing that shapes it has changed, and makes no model call at all on an
+unchanged re-run.
+
+**The key is the rendered prompt plus the model id.** Deliberately not a list of
+inputs: the prompt is already a pure function of the spec, the matched Screen
+Model pages, the conventions, the Suite Index summary, the exemplars and the
+template version, so hashing it covers every one of those and cannot rot when a
+section is added to the context builder. Rebuilding the prompt to compute the
+key is pure CPU, and doing it in a new module rather than inside `generatePlan`
+leaves Phase 3 frozen.
+
+**The entry stores the key, never the plan.** `.flint/plans/<feature>.plan.json`
+stays the single copy, so a human who tightens an assertion by hand gets their
+version rather than a cached duplicate of the original. A missing, deleted or
+unparseable plan is a miss, never an error.
+
+**The entry is written by the caller, only once the plan is persisted.** This
+was a bug in my first draft, caught before wiring: `ci` holds plans in memory
+until the compile gate passes, so writing the key at planning time would leave a
+key describing plan B beside plan A still on disk from the last good run — and
+the next run would serve A as though it were B. The tenth instance of the same
+class, and this time in code I was writing to fix the ninth. Key and plan are
+now written in the same loop, and a test asserts `generatePlanCached` writes
+nothing itself.
+
+**Two commands deliberately do not use it.** `flint plan` is the explicit "plan
+this now" command. `flint bench` measures what a feature costs, and a benchmark
+reporting $0.00 because it reused yesterday's answer would be measuring nothing.
+
+This is the determinism fix from 6.9, arrived at from the other side: it does
+not make the model repeat itself, it stops asking twice. `--replan` forces a
+fresh plan.
+
+Tests: 976 across 71 files (+15).

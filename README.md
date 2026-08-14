@@ -134,6 +134,32 @@ feature and wrong for a full run — whichever feature goes first meets the
 others' un-regenerated specs. `ci` emits every feature as one batch and gates
 once.
 
+### Planning is cached
+
+`ci` reuses a feature's stored plan when nothing that shapes it has changed —
+same spec, same Screen Model, same conventions, same planner model. A re-run
+over an untouched project makes **no model calls at all**:
+
+```
+Planning 2 feature(s): cart, login
+  cart: 6 case(s) (cached — inputs unchanged)
+  login: 5 case(s) (cached — inputs unchanged)
+  (2 of 2 reused a stored plan — no model call. `--replan` forces a fresh one.)
+```
+
+Edit a spec, re-crawl the app, or point `models.planner` at a different model
+and that feature re-plans by itself. `--replan` forces it regardless.
+
+This is a correctness feature as much as a cost one. Current Claude models
+reject the `temperature` parameter, so planning runs at the API default rather
+than 0 and the same spec can yield a different plan each time — three runs over
+an untouched project gave 6/6/6 cases for one feature and 5/4/5 for another.
+The cache is what makes an unchanged input produce an unchanged suite.
+
+`flint plan` and `flint bench` always call the model. `plan` is the explicit
+"plan this now" command, and a benchmark that reported $0.00 because it reused
+yesterday's answer would be measuring nothing.
+
 ---
 
 ## Writing the knowledge base

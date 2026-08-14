@@ -11,7 +11,11 @@ import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { scanSuite } from '../../indexer/scan.js';
 import { indexPath, writeIndex } from '../../indexer/store.js';
 import { listFeatureIds, readFeatureSpec } from '../../planner/feature-spec.js';
-import { generatePlan } from '../../planner/planner.js';
+import {
+  generatePlanCached,
+  writeCacheEntry,
+  type PlanCacheEntry,
+} from '../../planner/plan-cache.js';
 import { ownedSpecFiles } from '../../planner/supersede.js';
 import { hideSupersededTests } from '../../planner/hide-superseded.js';
 import { sessionCoverage } from '../../planner/session-coverage.js';
@@ -74,6 +78,7 @@ export function registerCi(program: Command): void {
     .option('--no-verify', 'stop after generating; do not run the suite')
     .option('--json', 'print a machine-readable summary instead of prose', false)
     .option('--allow-empty', 'write even if a spec that has tests would be left with none', false)
+    .option('--replan', 're-plan every feature even if its inputs are unchanged', false)
     .option('-v, --verbose', 'verbose logging', false)
     .action(async (opts: CiOptions) => {
       await runCi(opts);
@@ -90,6 +95,7 @@ interface CiOptions {
   /** commander maps `--no-verify` onto this, defaulting to true. */
   verify: boolean;
   allowEmpty: boolean;
+  replan: boolean;
   json: boolean;
   verbose: boolean;
 }
@@ -177,6 +183,9 @@ async function runCi(opts: CiOptions): Promise<void> {
   // then reports those tests as `(file unknown)`. The plan is a record of what
   // was generated, so it is written when something is.
   const planned = new Map<string, TestPlan>();
+  // Written beside each plan, only once the plan itself is persisted.
+  const cacheEntries = new Map<string, PlanCacheEntry>();
+  let cacheHits = 0;
 
   for (const featureId of featureIds) {
     const spec = readFeatureSpec(projectRoot, config.kbDir, featureId);
@@ -198,7 +207,9 @@ async function runCi(opts: CiOptions): Promise<void> {
     // the spec it was regenerating.
     const index = hideSupersededTests(scanned, spec.frontmatter.id);
 
-    const result = await generatePlan({
+    const result = await generatePlanCached({
+      projectRoot,
+      force: opts.replan,
       spec,
       model,
       provider,
@@ -218,7 +229,19 @@ async function runCi(opts: CiOptions): Promise<void> {
       plan: result.plan,
       title: spec.frontmatter.title,
     });
-    say(`  ${spec.frontmatter.id}: ${result.plan.cases.length} case(s)`);
+    say(
+      `  ${spec.frontmatter.id}: ${result.plan.cases.length} case(s)` +
+        (result.cacheHit ? ' (cached — inputs unchanged)' : ''),
+    );
+    if (result.cacheHit) cacheHits += 1;
+    cacheEntries.set(spec.frontmatter.id, result.cacheEntry);
+  }
+
+  if (cacheHits > 0) {
+    say(
+      `  (${cacheHits} of ${featureIds.length} reused a stored plan — no model call. ` +
+        '`--replan` forces a fresh one.)',
+    );
   }
 
   // ---- emit them as one batch, gate once ---------------------------------
@@ -333,7 +356,11 @@ async function runCi(opts: CiOptions): Promise<void> {
   // Only now. Downstream readers — drift analysis, the next run's dedupe —
   // treat a stored plan as a claim that its tests exist, so it must not outlive
   // a run that wrote nothing.
-  for (const [featureId, plan] of planned) writePlan(planPath(projectRoot, featureId), plan);
+  for (const [featureId, plan] of planned) {
+    writePlan(planPath(projectRoot, featureId), plan);
+    const entry = cacheEntries.get(featureId);
+    if (entry !== undefined) writeCacheEntry(projectRoot, featureId, entry);
+  }
   summary.filesWritten = applied.written;
 
   say('');
