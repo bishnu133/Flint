@@ -108,6 +108,7 @@ what it cannot fix with a `fixme` explaining why.
 | `flint verify [--repair]`                 | Run the suite, classify failures, optionally repair                 |
 | `flint ci`                                | The whole pipeline in one command, headless, `--json` for CI        |
 | `flint bench`                             | Measure the pipeline and write a baseline                           |
+| `flint pr`                                | Commit the suite on a branch; `--push` opens a pull request         |
 
 `--dir <path>` and `--help` work on all of them.
 
@@ -165,6 +166,30 @@ export default {
 
 Every key, its default, and what it costs you to get it wrong:
 **[docs/config-reference.md](docs/config-reference.md)**.
+
+---
+
+## Proposing the suite as a pull request
+
+```bash
+pnpm cli pr --dir $DEMO --dry-run   # see the commit and the PR body first
+pnpm cli pr --dir $DEMO             # branch + commit, locally
+pnpm cli pr --dir $DEMO --push      # push and open the PR (needs GITHUB_TOKEN)
+```
+
+Two things it deliberately does not do:
+
+- **It does not push unless you pass `--push`.** By default it makes a branch
+  and a commit and prints the commands to finish. A tool that pushes to your
+  origin as a side effect of generating tests is a bad default.
+- **It stages only what Flint owns** — `<suiteDir>/` and `.flint/`, by path,
+  never `git add -A`. Unrelated changes in your tree are reported and left
+  alone, so a half-finished refactor cannot end up in a generated PR.
+
+The PR body leads with what actually ran — passed, failed, skipped, fixme —
+names every test that did not pass with its reason, and flags assertion
+failures that may be real application defects. If the suite was never run, it
+says so rather than implying green.
 
 ---
 

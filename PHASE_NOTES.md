@@ -2490,3 +2490,59 @@ this phase — the file predates the prettier config and reformatting 2,400 line
 of history would destroy the diff that makes it useful. The definition of done
 is `test`, `build`, `lint`, all of which are green. The new docs are
 prettier-clean.
+
+### 6.5 GitHub PR mode — `flint pr`
+
+Both open questions answered by the operator (2026-08-14): **octokit, not the
+`gh` CLI**, and **no pushing by default**.
+
+- **octokit** — no external binary to install, behaves the same in CI as on a
+  laptop, and it does not inherit whatever account someone happens to be logged
+  into, which is a surprising way to decide who authored a pull request.
+- **`--push` is opt-in.** By default `flint pr` creates a branch, commits, and
+  prints the two commands to finish. A test generator that pushes to somebody's
+  origin as a side effect of generating tests is a bad default; the blast
+  radius of getting it wrong is a branch on their remote they did not ask for.
+
+**Staging is path-scoped: `<suiteDir>` and `.flint`, never `git add -A`.** A
+generator that sweeps the working tree will eventually publish somebody's
+half-finished refactor or their `.env`, and they will find out from the pull
+request. Unrelated changes are counted, listed, and left alone. This is the one
+property with a test that could not be written against a mock, so `git.test.ts`
+runs against a real temporary repository.
+
+**The PR body leads with what ran, not what was generated.** A reviewer opening
+a generated PR has one question — should I trust these tests? — and "adds 12
+tests" does not answer it. First line is `**3 of 4 tests pass; 1 fail.**`, or
+`**Not verified**` when the suite was not run or the app was unreachable. Every
+non-passing test is named with its failure class and first error line, and
+assertion failures that may be real application defects get their own section.
+Blocked cases carry their reason instead of vanishing.
+
+#### Two defects the tests caught
+
+Both would have shipped without a real repository and a table-driven parser
+test:
+
+1. **`git status --porcelain` collapses untracked directories.** A hundred new
+   spec files showed up as one line, `e2e/`, and `git add` then failed on
+   `.flint` when that directory did not exist yet — which reads like a Flint
+   bug and is not one. Fixed with `-uall` and by staging only paths that exist.
+
+2. **A GitHub Enterprise remote would have opened the PR on the public repo.**
+   `github.mycorp.com/acme/widgets` parses to `acme/widgets` just as happily as
+   github.com does, and octokit defaults to `api.github.com` — so Flint would
+   have tried to open a pull request against a *stranger's* public repository of
+   that name. `parseRemote` now anchors the host to github.com exactly;
+   anything else returns undefined and the command says "not a GitHub remote —
+   your branch is pushed, open it in your host's UI."
+
+**Failure handling is about not losing work.** Every error after the commit
+says the commit is safe and where it is: a failed push, a missing remote, a
+missing token, a GitHub refusal. The token-missing path prints the `compare`
+URL so the operator can finish in one click.
+
+Flags: `--branch`, `--base`, `--remote`, `--push`, `--draft`, `--title`,
+`--dry-run`.
+
+Tests: 35 (11 git against a real repo, 11 body, 13 remote/token parsing).
