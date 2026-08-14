@@ -45,9 +45,11 @@ export function divertDeadlockAdvice(options: DeadlockAdviceOptions): string[] {
   lines.push('');
   lines.push(
     membershipErrors(options.errors)
-      ? 'That is this run colliding with your edits, not a defect in the generated code:'
-      : 'This run also could not overwrite files you have edited, which may be why:',
+      ? 'That is a collision, not a defect in the generated code. Flint could not'
+      : 'Flint also could not overwrite these, which may be why. It could not',
   );
+  lines.push('overwrite these files — their contents no longer match the marker Flint');
+  lines.push('last wrote, so what is on disk was kept:');
   for (const decision of diverted) {
     lines.push(`  ${join(options.suiteDir, decision.path)}`);
     lines.push(
@@ -55,12 +57,16 @@ export function divertDeadlockAdvice(options: DeadlockAdviceOptions): string[] {
     );
   }
   lines.push('');
-  lines.push('The new specs are written against Flint’s version of those files; the gate');
-  lines.push('typechecks them against yours. Until the two agree, every run fails here in');
-  lines.push('exactly the same way.');
+  // Deliberately not "your edits": `flint verify --repair` rewrites page objects
+  // and specs in place, and blaming a human for a file Flint itself changed
+  // sends them looking for an edit they never made.
+  lines.push('That happens when you edit a generated file — and also when an earlier');
+  lines.push('`flint verify --repair` rewrote one. Either way, the new specs are written');
+  lines.push('against Flint’s version and the gate typechecks them against the version on');
+  lines.push('disk, so every run fails here in exactly the same way.');
   lines.push('');
   lines.push('Two ways out:');
-  lines.push('  1. Merge what you want from the .flint.ts copy into your file, then re-run.');
+  lines.push('  1. Merge what you want from the .flint.ts copy into the file, then re-run.');
   lines.push('  2. Give the file back to Flint — delete both and re-run:');
   for (const decision of diverted) {
     lines.push(

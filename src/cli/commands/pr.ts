@@ -1,8 +1,9 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
 import { createLogger } from '../../shared/logger.js';
+import { displayPath } from '../hints.js';
 import { FlintError } from '../../shared/errors.js';
 import { RunReportSchema, type RunReport } from '../../schemas/run-report.js';
 import { readAllPlans } from '../../planner/store.js';
@@ -21,6 +22,7 @@ import {
 } from '../../pr/git.js';
 import { buildPrContent, commitMessage } from '../../pr/body.js';
 import { createPullRequest, findToken, parseRemote } from '../../pr/github.js';
+import { gitignoreSuggestion, vendoredPaths, vendoredReasons } from '../../pr/vendored.js';
 
 /**
  * `flint pr` — propose the generated suite as a pull request.
@@ -88,6 +90,30 @@ async function runPr(opts: PrOptions): Promise<void> {
     console.log('');
     console.log('Nothing to propose — no changes under', owned.join(' or '));
     console.log('Run `flint ci` first, or commit the changes you already have.');
+    process.exitCode = 1;
+    return;
+  }
+
+  // Before anything else: a project with no .gitignore has `node_modules`
+  // sitting inside the suite directory, and staging by path would put every one
+  // of those files in the pull request.
+  const vendored = vendoredPaths(changed);
+  if (vendored.length > 0) {
+    console.log('');
+    console.log(`Refusing to commit: ${vendored.length} of the ${changed.length} changed file(s)`);
+    console.log(`are build output, not tests (${vendoredReasons(changed).join(', ')}).`);
+    console.log('');
+    for (const file of vendored.slice(0, 5)) console.log(`  ${file}`);
+    if (vendored.length > 5) console.log(`  … and ${vendored.length - 5} more`);
+    console.log('');
+    console.log('git has no .gitignore to tell it otherwise, so these count as changes under');
+    console.log(
+      `${owned.join(' and ')}. Write this to ${displayPath(join(projectRoot, '.gitignore'))}:`,
+    );
+    console.log('');
+    for (const line of gitignoreSuggestion(config.suiteDir).split('\n')) console.log(`  ${line}`);
+    console.log('');
+    console.log('then re-run. Nothing was changed.');
     process.exitCode = 1;
     return;
   }

@@ -2606,3 +2606,71 @@ directory `flint init` never made a repository. `flint pr` refused correctly —
 that was a guide defect, not a Flint one.
 
 Tests: 942 across 68 files (+19).
+
+### 6.7 Three defects that need frozen files changed (2026-08-14)
+
+Found in the fifth live run. All three are one-to-three-line fixes in completed
+phases, so per working rule 2 they are recorded here rather than made.
+
+**A. `pino` writes to stdout, so `--json` output is not parseable.**
+`src/shared/logger.ts` (Phase 0) creates the logger with no destination, which
+means `process.stdout` — the same stream the CLI prints its human output and its
+`--json` summary on. Two consequences, both visible in the operator's log:
+structured log lines land in the middle of prose and out of order (`plan:
+generated` printed *after* `CI failed at the gate stage.`), and roughly sixty
+blank lines appeared inside a single message because two buffered writers were
+sharing one fd. The functional half is worse than the cosmetic half: anything
+piping `flint ci --json` into `jq` gets log lines mixed into the object, and
+`--json` for CI consumption is a Phase 6 exit criterion.
+
+Fix: `pino(options, process.stderr)`. Diagnostics belong on stderr; stdout is
+the product. Reproduced locally — `console.log`/`logger.info`/`console.log`
+prints `BEFORE`, `AFTER`, then the log line.
+
+**B. The repair loop rewrites managed files without re-stamping the marker.**
+`src/verifier/repair-runner.ts` (Phase 5) writes with plain `writeFileSync` at
+two points — the selector/LLM repair's `writeFile` dependency, and the `fixme`
+marker writer. `withMarker` is called in exactly one place in the codebase,
+`integrator/writer.ts`. So a repaired file keeps the hash of its *pre-repair*
+content, `classify()` returns `hand-edited`, and the next `ci` run diverts it to
+`*.flint.ts` and fails the compile gate — permanently.
+
+**This is the ninth instance of the recurring class: Flint reading its own
+previous output as somebody else's input.** It is also the actual cause of the
+operator's stuck `inventory-html.page.ts`: the locator swap in that file
+(`addToCartButton` moved from the bike-light testid to the backpack testid) is
+exactly what the deterministic selector retry does. Nobody hand-edited anything.
+
+Fix: re-stamp with `withMarker` at both write sites.
+
+**C. `flint init` scaffolds no `.gitignore`.** The generated suite has its own
+`node_modules` (installed deliberately — `@playwright/test` is the suite's
+dependency, not Flint's), so a scaffolded project's first commit sweeps in about
+seven hundred vendored files. `src/cli/scaffold.ts` is Phase 0.
+
+Fix: scaffold a `.gitignore` covering `<suiteDir>/node_modules/`,
+`test-results/`, `playwright-report/`, `blob-report/`, `.DS_Store` and `.env`.
+
+#### Fixed now, in Phase 6 code
+
+- **`flint pr` would have committed `node_modules`.** Staging is path-scoped to
+  `<suiteDir>` and `.flint`, which is correct, but git decides what inside those
+  paths matters from `.gitignore` — and there is none (defect C). `git add --
+  e2e` would therefore vendor the whole dependency tree into the pull request.
+  `src/pr/vendored.ts` refuses, names the offending segments, and prints the
+  `.gitignore` to write. Refusing rather than silently excluding: the missing
+  ignore file is the real defect and the operator needs it for their own
+  `git status`, not just for Flint's commit. Segment-matched, not substring —
+  `pages/node_modules-viewer.page.ts` is a test file.
+- **The divert message blamed the operator for an edit Flint made.** Given
+  defect B, "you have edited them" is often false. It now says the contents no
+  longer match the marker Flint last wrote, and names both causes.
+- `PHASE_6_TESTING.md` §5–6: the guide told the operator to `git add -A && git
+  commit` before `flint pr`, which commits the generated suite and leaves `pr`
+  correctly reporting nothing to propose. My error, not Flint's.
+
+#### Also observed, not defects
+
+`kb/features/example.md` ships with `flint init` and plans a full second login
+feature (`example-login`, 5 cases) alongside the operator's own `login`. Worth
+deleting from a real project; worth reconsidering as a scaffold default.

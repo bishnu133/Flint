@@ -64,8 +64,20 @@ describe('divertDeadlockAdvice', () => {
       errors: [memberError],
       suiteDir: 'e2e',
     }).join('\n');
-    expect(lines).toContain('That is this run colliding with your edits');
+    expect(lines).toContain('That is a collision, not a defect in the generated code');
     expect(lines).not.toContain('which may be why');
+  });
+
+  it('does not blame the operator for an edit `--repair` may have made', () => {
+    // repair-runner rewrites page objects in place. Telling someone "you edited
+    // this" sends them hunting for a change they never made.
+    const lines = divertDeadlockAdvice({
+      decisions: [diverted],
+      errors: [memberError],
+      suiteDir: 'e2e',
+    }).join('\n');
+    expect(lines).toContain('flint verify --repair');
+    expect(lines).not.toMatch(/typechecks them against yours/);
   });
 
   it('hedges when the errors are some other kind of breakage', () => {

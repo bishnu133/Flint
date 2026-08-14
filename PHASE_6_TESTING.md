@@ -228,24 +228,41 @@ run did not complete — the file is written but stamped provisional, and it is
 not the number V2 has to beat. Fix what it names (almost always a compile-gate
 failure) and re-run before committing anything.
 
-Then commit it in the demo project — a baseline nobody can find is not a
-baseline. `$DEMO` is scaffolded by `flint init` and is **not** a git repository
-yet, so initialise it first (skip the first two lines if you already have):
-
-```bash
-git -C $DEMO init -q
-git -C $DEMO add -A && git -C $DEMO commit -qm "chore: generated suite"
-git -C $DEMO add benchmarks/ && git -C $DEMO commit -m "chore: record V1 benchmark baseline"
-```
-
-Section 6 needs the repository too — `flint pr` refuses outright without one,
-which is the correct behaviour and not a bug.
-
-Send me the contents of `benchmarks/baseline.md`.
+Send me the contents of `benchmarks/baseline.md`. Do **not** commit it yet —
+section 6 sets the repository up properly first.
 
 ---
 
 ## 6. Open a pull request (6.5)
+
+**Set the repository up first.** `flint init` does not create one, and — this is
+the part that bites — it does not write a `.gitignore` either, so the suite's
+own `node_modules/` counts as a change under `e2e/`. Do not run `git add -A`
+here: that commits the generated suite, after which `flint pr` correctly reports
+there is nothing left to propose.
+
+If `$DEMO` is already a repo with everything committed, start it over:
+
+```bash
+rm -rf $DEMO/.git
+git -C $DEMO init -q
+
+cat > $DEMO/.gitignore <<'EOF'
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/blob-report/
+.DS_Store
+.env
+EOF
+
+# commit everything EXCEPT what Flint owns, so `pr` has something to propose
+git -C $DEMO add .gitignore flint.config.ts kb/ benchmarks/
+git -C $DEMO commit -qm "chore: project scaffold and benchmark baseline"
+```
+
+If you skip the `.gitignore`, `flint pr` refuses and prints that exact file —
+that is the guard working, not a failure.
 
 **Look before it touches anything:**
 
