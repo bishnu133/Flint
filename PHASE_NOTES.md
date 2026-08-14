@@ -2393,3 +2393,61 @@ Worth recording, because these were the things most likely to be wrong:
   them.
 - `--fix-page-objects` re-pointed the page objects, left every spec byte
   identical, updated the model, and `flint verify` then passed 7/7 that ran.
+
+### 6.3 Benchmark runner — the number V2 has to beat
+
+Part D makes a V1 baseline a **prerequisite** for V2: "agentic upgrades must
+PROVE improvement, not vibe it." That only works if the baseline exists before
+anyone starts building the thing it judges, which is why this ships now rather
+than "when we get to V2".
+
+`flint bench` measures the pipeline end to end and writes `benchmarks/baseline.md`
+(plus the same data as JSON, for diffing):
+
+| Metric | Source |
+| --- | --- |
+| Compile rate | per feature, attributed from the gate's error paths |
+| First-run pass | the verify run **before** repair |
+| Post-repair pass | the same run after the repair loop |
+| Selector re-resolve rate | `--validate` only — needs a browser |
+| Tokens + est. cost per feature | recorded per call, priced from a dated table |
+| Wall time per stage | measured around plan / emit / gate / verify / repair |
+
+**It is not `flint ci --json`.** `ci` reports what a run did; bench reports what
+the pipeline costs and achieves. The first-run pass rate is the one `ci`
+structurally cannot give you — it repairs and *then* reports, so the pre-repair
+number is gone by the time it prints. Separating them is the whole point: the
+V2 claim will be "repair got better", and that is unfalsifiable without both.
+
+**Nothing defaults to zero.** Every metric is measured or `undefined`, and
+`undefined` renders as `not measured`. A benchmark that silently reports 0% for
+something it never ran is worse than one that admits the gap: the first is a
+false regression, the second is a to-do. The selector rate is the live case —
+it needs a browser, so without `--validate` it says so rather than inventing
+100%.
+
+**Costs are quoted, not remembered.** `src/bench/pricing.ts` carries an `asOf`
+date on every figure, checked against the published table rather than recalled,
+and the report prints the date beside the number so a stale table announces
+itself. An unknown model yields **no** cost rather than zero, and one unpriced
+model makes the *total* absent rather than under-counted — a total that silently
+drops a model reads as complete and is not.
+
+**Token attribution is by call order, not by parsing `meta.purpose`.**
+`RecordingProvider` decorates the real provider (so the measured path is the
+production path, not a copy that could drift); the command notes `calls.length`
+before each feature and slices. A purpose string is prose for humans and would
+break the numbers the first time someone reworded it.
+
+**Compile rate is per feature, not one boolean.** The batch gate is
+all-or-nothing, which would make the metric degenerate. Gate errors are
+attributed to features by the spec file tsc names; an error in a *shared* page
+object is charged to every feature in the batch, which is the honest reading —
+the batch did not compile.
+
+Flags: `--feature <id...>`, `--out <path>`, `--validate`, `--no-repair`,
+`--no-write` (measure without touching the suite), `--json`.
+
+Tests: 16 (11 metrics, 5 recorder). The baseline itself is not committed yet —
+it has to come from a live run against the demo app, which is the operator's
+machine, not this sandbox.

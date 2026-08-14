@@ -12,6 +12,7 @@ import { registerPlan } from './commands/plan.js';
 import { registerGenerate } from './commands/generate.js';
 import { registerVerify } from './commands/verify.js';
 import { registerCi } from './commands/ci.js';
+import { registerBench } from './commands/bench.js';
 import { registerStubs } from './commands/stubs.js';
 
 function version(): string {
@@ -47,6 +48,7 @@ export function buildProgram(): Command {
   // Implemented in Phase 5.
   registerVerify(program);
   registerCi(program);
+  registerBench(program);
 
   // Pipeline commands (stubbed until their phase).
   registerStubs(program);
