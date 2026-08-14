@@ -192,7 +192,96 @@ Restore with the backup afterwards.
 
 ---
 
+## 5. Record the benchmark baseline (6.3)
+
+This is a Phase 6 exit criterion — the numbers V2 has to beat. It runs the whole
+pipeline once and writes `benchmarks/baseline.md` into the demo project.
+
+```bash
+pnpm cli bench --dir $DEMO --validate
+```
+
+`--validate` adds the selector re-resolve rate, which needs a browser and about
+a minute. Without it that row reads `not measured` rather than a made-up 100%.
+
+**Expect:** a headline block, then a file written. Costs are estimates from
+published list prices with the date they were checked printed beside them.
+
+```
+Compile rate              100.0%
+First-run pass            84.6%
+Post-repair pass          100.0%
+Selector re-resolve rate  100.0%
+
+Baseline written to ~/flint-demo/benchmarks/baseline.md
+```
+
+Then commit it in the demo project — a baseline nobody can find is not a
+baseline:
+
+```bash
+git -C $DEMO add benchmarks/ && git -C $DEMO commit -m "chore: record V1 benchmark baseline"
+```
+
+Send me the contents of `benchmarks/baseline.md`.
+
+---
+
+## 6. Open a pull request (6.5)
+
+**Look before it touches anything:**
+
+```bash
+pnpm cli pr --dir $DEMO --dry-run
+```
+
+**Expect:** the exact file list it would commit, any unrelated changes it is
+leaving alone, and the full PR body. Nothing changes on disk.
+
+Check the first line of the body — it should be a claim about evidence
+(`**11 of 12 tests pass.**`), not a count of generated tests. If it says
+`**Not verified**`, run `flint verify --dir $DEMO` first so the PR carries a
+run report.
+
+**Commit locally (still no push):**
+
+```bash
+pnpm cli pr --dir $DEMO
+```
+
+**Expect:** `Committed <sha> on flint/<timestamp>`, then the two commands to
+finish. Confirm it only took what it should:
+
+```bash
+git -C $DEMO show --name-only --format= HEAD
+```
+
+Everything listed must be under `e2e/` or `.flint/`. Anything else is a bug and
+I want to know immediately.
+
+**Push and open the PR** (only when the above looks right):
+
+```bash
+export GITHUB_TOKEN=ghp_...          # needs `repo` scope
+pnpm cli pr --dir $DEMO --push --branch <the branch it just made>
+```
+
+**Expect:** `Pushed …`, then `Pull request #N: https://github.com/…`.
+
+Without a token it still pushes and prints a `compare` URL to finish in the
+browser — that is a valid outcome, not a failure.
+
+**If you would rather not push at all**, stop after the local commit and undo it
+with:
+
+```bash
+git -C $DEMO checkout - && git -C $DEMO branch -D flint/<timestamp>
+```
+
+---
+
 ## What to send back
 
-The terminal output of **1**, **3d**, **3e** and **3f**. Those four cover both
-phases; the rest is scaffolding.
+The terminal output of **1**, **3d**, **3e**, **3f**, and **5**, plus the
+`git show --name-only` output from **6**. Those cover every Phase 6 claim; the
+rest is scaffolding.
