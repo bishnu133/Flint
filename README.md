@@ -119,6 +119,15 @@ what it cannot fix with a `fixme` explaining why.
 `flint ci --json | jq .ok` works, and `2>/dev/null` gives you the prose without
 the diagnostics.
 
+One caveat when running from this repo rather than an installed binary: `pnpm
+run` prints its own `> flint@0.0.0 cli` banner to stdout, which lands in the
+pipe ahead of the JSON and makes `jq` fail on it. Use `pnpm -s` (silent) for
+anything you intend to parse:
+
+```bash
+pnpm -s cli ci --dir ./my-project --json | jq .ok
+```
+
 **Use `flint ci` rather than `plan` + `generate` in a loop.** `generate` gates
 one feature against the suite as it currently stands, which is right for one
 feature and wrong for a full run — whichever feature goes first meets the

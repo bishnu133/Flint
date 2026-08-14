@@ -178,3 +178,39 @@ describe('provisionalReasons', () => {
     expect(provisionalReasons(bench())[0]).toContain('suite was never run');
   });
 });
+
+describe('deduped column', () => {
+  // The live baseline had a `login` row reading 5 cases, 0 degraded, 3 live
+  // tests. Nothing was wrong — two cases duplicated tests `cart` had already
+  // emitted — but the row was unreadable without the source open, and this
+  // document exists to be read by whoever measures V2 against it.
+  it('accounts for every case, so the row reconciles', () => {
+    const report = bench({
+      features: [feature({ cases: 5, liveTests: 3, degraded: 0 })],
+    });
+    const row = report.features[0]!;
+    expect(row.deduped).toBe(2);
+    expect(row.liveTests + row.degraded + row.deduped).toBe(row.cases);
+  });
+
+  it('is zero when nothing was deduplicated', () => {
+    expect(
+      bench({ features: [feature({ cases: 5, liveTests: 4, degraded: 1 })] }).features[0]!.deduped,
+    ).toBe(0);
+  });
+
+  it('never goes negative if the counts disagree', () => {
+    // Defensive: a miscount upstream should not print "-1" into the baseline.
+    expect(
+      bench({ features: [feature({ cases: 1, liveTests: 4, degraded: 1 })] }).features[0]!.deduped,
+    ).toBe(0);
+  });
+
+  it('renders the column', () => {
+    const md = formatBaseline(
+      bench({ features: [feature({ cases: 5, liveTests: 3, degraded: 0 })] }),
+    );
+    expect(md).toContain('| Feature | Cases | Live tests | Degraded | Deduped |');
+    expect(md).toMatch(/\| login \| 5 \| 3 \| 0 \| 2 \|/);
+  });
+});

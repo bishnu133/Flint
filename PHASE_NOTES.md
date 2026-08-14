@@ -2723,3 +2723,65 @@ remembered for the rest of the run (`anthropic.ts` already caches it). Latency,
 not money. No change.
 
 Tests: 957 across 70 files (+15).
+
+### 6.9 Live verification of the 6.8 fixes (2026-08-14)
+
+Operator re-ran the pipeline. **The deadlock is gone**: the compile gate passed,
+13 tests emitted, 11 ran, 11 passed, 1 skipped, 1 fixme, and `flint ci` exited
+clean. `bench --validate` recorded the V1 baseline — compile rate, first-run
+pass, post-repair pass and selector re-resolve all 100%, $0.22 per feature,
+93.9s wall.
+
+Three things the run surfaced.
+
+**A. `--json | jq` still failed, and it was my instruction, not the logger.**
+The stderr fix works — the pino lines appeared on the operator's terminal while
+stdout was piped away, which is the proof. What broke `jq` was `pnpm run`
+printing its own `> flint@0.0.0 cli` banner to stdout, ahead of the JSON.
+Confirmed locally: `pnpm cli --version 2>/dev/null` emits four lines of banner
+before the version. Fixed in the docs (`pnpm -s`), not in the code — an
+installed `flint` binary was never affected, and Flint should not be papering
+over its package manager.
+
+**B. The baseline had a row that did not add up.** `login` showed 5 cases, 0
+degraded, 3 live tests. Nothing was wrong — two cases duplicated tests `cart`
+had already emitted, and `liveTests = cases - skippedDuplicates - degraded` —
+but `skippedDuplicates` was computed and then dropped before rendering. A
+document whose stated purpose is "V2 has to beat these numbers" cannot have
+rows that need the source open to interpret. Added a `Deduped` column; the four
+per-feature counts now reconcile, and a test asserts it.
+
+**C. Planning is not deterministic, and CLAUDE.md says it must be.** Left for
+the operator to decide — written up below rather than fixed, because the fix is
+architectural.
+
+Three runs over *identical* input (same Screen Model, same specs, no edits
+between):
+
+| Run | cart cases | cart out-tokens | cart degraded | login cases | login out-tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `ci` | 6 | 5156 | 1 | 5 | 3051 |
+| `ci --json` | 6 | 6128 | 2 | 4 | 2583 |
+| `bench` | 6 | 5284 | 2 | 5 | 2613 |
+
+`login` produced five cases, then four, then five. The suite is different every
+run.
+
+The cause is in plain sight in the logs: `model rejects the temperature
+parameter — retrying without it`. `claude-opus-5` refuses `temperature`, so
+`anthropic.ts` correctly drops it and retries — and the request then goes with
+no temperature field at all, which means the API default, not 0. The retry is
+right; what is missing is that nothing noticed the determinism rule had been
+silently voided. "Regenerating identical input must produce byte-identical
+output" (CLAUDE.md, locked) is currently false for any feature spec.
+
+Note the emitter is not implicated: it is pure templating and is byte-identical
+given a plan. It is Stage A that varies, and the emitter faithfully turns a
+different plan into a different suite.
+
+This is a `PHASE_NOTES` question per rule 7, not a unilateral change: the
+options (accept and document; pin an older model; cache plans by input hash)
+differ in cost, and the third is the one that also fixes the ~$0.45 every `ci`
+currently spends re-planning work it already has on disk.
+
+Tests: 961 across 70 files (+4).

@@ -21,6 +21,15 @@ export interface FeatureMetrics {
   /** Tests that will actually run, after duplicates and degradation. */
   liveTests: number;
   degraded: number;
+  /**
+   * Cases dropped because an earlier feature already covered them.
+   *
+   * Reported because without it the row does not add up: a feature can show 5
+   * cases, 0 degraded and 3 live tests, and a reader has no way to tell whether
+   * two tests were silently lost or correctly deduplicated. A baseline V2 is
+   * measured against has to be readable without the source open.
+   */
+  deduped: number;
   /** True when this feature's emitted code drew no compile-gate errors. */
   compiled: boolean;
   inputTokens: number;
@@ -103,6 +112,7 @@ export function assembleBench(options: AssembleOptions): BenchReport {
       cases: feature.cases,
       liveTests: feature.liveTests,
       degraded: feature.degraded,
+      deduped: Math.max(0, feature.cases - feature.liveTests - feature.degraded),
       compiled: feature.compiled,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -223,13 +233,13 @@ export function formatBaseline(report: BenchReport): string {
 
   lines.push('## Per feature', '');
   lines.push(
-    '| Feature | Cases | Live tests | Degraded | Compiled | Tokens in | Tokens out | Cost |',
-    '| --- | ---: | ---: | ---: | :---: | ---: | ---: | ---: |',
+    '| Feature | Cases | Live tests | Degraded | Deduped | Compiled | Tokens in | Tokens out | Cost |',
+    '| --- | ---: | ---: | ---: | ---: | :---: | ---: | ---: | ---: |',
   );
   for (const feature of report.features) {
     lines.push(
       `| ${feature.featureId} | ${feature.cases} | ${feature.liveTests} | ${feature.degraded} | ` +
-        `${feature.compiled ? 'yes' : 'no'} | ${feature.inputTokens} | ${feature.outputTokens} | ` +
+        `${feature.deduped} | ${feature.compiled ? 'yes' : 'no'} | ${feature.inputTokens} | ${feature.outputTokens} | ` +
         `${feature.costUsd === undefined ? 'unpriced' : formatUsd(feature.costUsd)} |`,
     );
   }

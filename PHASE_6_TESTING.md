@@ -58,14 +58,16 @@ exact `rm`. Nothing is written in the meantime, including the plans.
 Then the machine-readable form CI would consume:
 
 ```bash
-pnpm cli ci --dir $DEMO --json --no-verify
-echo "exit: $?"
+pnpm -s cli ci --dir $DEMO --json --no-verify | jq .ok
+echo "exit: ${PIPESTATUS[0]}"
 ```
 
-**Expect:** one JSON object (`ok`, per-feature counts, `gate`, `filesWritten`)
-and `exit: 0`. Re-running it should report `Suite already up to date —
-regenerating produced identical files` if nothing drifted — that is the
-determinism guarantee visible from outside.
+Note the `-s`: `pnpm run` prints its own `> flint@0.0.0 cli` banner to stdout,
+which lands in the pipe ahead of the JSON. That is pnpm, not Flint — an
+installed `flint` binary needs no flag — but it will break `jq` every time
+without it.
+
+**Expect:** `true`, and `exit: 0`.
 
 ---
 
