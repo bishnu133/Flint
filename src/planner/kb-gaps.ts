@@ -1,5 +1,5 @@
 import type { FeatureSpec } from './feature-spec.js';
-import type { AppKnowledge, EntityDoc, StateSetup } from '../schemas/kb-app.js';
+import type { AppKnowledge, EntityDoc, RoleDoc, StateSetup } from '../schemas/kb-app.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 
 /**
@@ -70,6 +70,31 @@ export function checkKbGaps(input: GapCheckInput): GapReport {
   const grounded: GapReport['grounded'] = [];
 
   for (const need of spec.frontmatter.dataNeeds ?? []) {
+    // Roles first. "a BAP user with the customer care role" is a precondition
+    // like any other, and it is recorded in roles.md rather than as an entity
+    // with states — checking only entities reported the most common
+    // precondition in the whole card as undescribed.
+    const role = matchRole(need, knowledge.roles);
+    if (role !== undefined) {
+      if (role.credentials === undefined) {
+        gaps.push({
+          kind: 'unknown-state',
+          featureId,
+          what: need,
+          reason: `role \`${role.id}\` names no credential getter.`,
+          fix: `Add \`credentials:\` to ${role.id} in ${kbDir}/app/roles.md.`,
+        });
+      } else {
+        grounded.push({
+          need,
+          entity: 'role',
+          state: role.id,
+          via: role.credentials,
+        });
+      }
+      continue;
+    }
+
     const match = matchEntity(need, knowledge.entities);
 
     if (match === undefined) {
@@ -77,10 +102,15 @@ export function checkKbGaps(input: GapCheckInput): GapReport {
         kind: 'unknown-entity',
         featureId,
         what: need,
-        reason: 'no entity in the knowledge base matches this.',
-        fix: `Describe it in ${kbDir}/app/entities/<entity>.md, or add an alias to an existing file.`,
-        ...(knowledge.entities.length > 0
-          ? { candidates: knowledge.entities.map((e) => e.entity) }
+        reason: 'nothing in the knowledge base matches this.',
+        fix: `Describe it in ${kbDir}/app/entities/<entity>.md, add a role to ${kbDir}/app/roles.md, or add an alias to an existing file.`,
+        ...(knowledge.entities.length + knowledge.roles.length > 0
+          ? {
+              candidates: [
+                ...knowledge.entities.map((e) => e.entity),
+                ...knowledge.roles.map((r) => `role:${r.id}`),
+              ],
+            }
           : {}),
       });
       continue;
@@ -171,6 +201,24 @@ export function matchEntity(need: string, entities: EntityDoc[]): EntityDoc | un
     }
   }
   return best?.entity;
+}
+
+/**
+ * Which role a need refers to, by id or alias.
+ *
+ * Same longest-match rule as entities, for the same reason: a card says
+ * "customer support roles" and the file says `customerCare`, so the alias is
+ * what makes them meet.
+ */
+export function matchRole(need: string, roles: RoleDoc[]): RoleDoc | undefined {
+  let best: { role: RoleDoc; length: number } | undefined;
+  for (const role of roles) {
+    for (const name of [role.id, ...role.aliases]) {
+      if (!containsPhrase(need, name)) continue;
+      if (best === undefined || name.length > best.length) best = { role, length: name.length };
+    }
+  }
+  return best?.role;
 }
 
 /** Which of the entity's states the need is asking for. Longest match wins. */

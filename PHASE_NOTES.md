@@ -3065,3 +3065,37 @@ Now three distinct messages: no specs found at all; specs found but none
 declares `dataNeeds`; and every declared need grounded. Only the third is a pass.
 
 Tests: 1076 across 75 files (+2).
+
+### B2.2 — Two gaps found by writing a real spec (2026-08-17)
+
+Wrote feature specs for HPBPPH-17169 (BAP customer care, Unfit MVPA column)
+against the real manifest. Two omissions surfaced immediately, both invisible
+until a genuine card was tried.
+
+**Credential getters that break the naming convention.** The scanner matched
+`^get.*Credentials$`, and the operator's `BAP.ts` also exports
+`getCustomerSupportLevel1()` — same job, different name. Missing it means the
+generator invents a getter, or a `roles.md` entry naming the real one gets
+reported as a broken reference. A second signal now applies: a `get`-prefixed
+function whose returned value is an object literal with `username` and
+`password`. Following the returned identifier matters — these files are written
+as `const byEnv = {...}` at module level with the getter returning `byEnv[env]`,
+so the literal is not inside the function at all.
+
+**Roles were not resolvable as data needs.** `checkKbGaps` only matched
+`dataNeeds` against entities, so "a BAP user with the customer care role" — the
+most common precondition in the card — came back as undescribed, even with
+`roles.md` written and correct. Roles are now matched first, by id or alias, and
+ground to their credential getter.
+
+Both are the same lesson as B1.2: the fixtures were right and the code was
+wrong in a way only real input exposes.
+
+**The card's verdict, which is the point of B2.** Of nine ACs, four are H365
+mobile and out of scope. Of the five BAP ones, AC1 (column exists after the MVPA
+column) needs no data at all and is automatable today; AC2–AC5 all need MVPA
+synced against a known GAQ status on a known date, and `ActivityRepository` has
+`deleteMVPA` with no insert. Split into two specs so the first ships now rather
+than waiting on the seeding question.
+
+Tests: 1084 across 75 files (+8).

@@ -433,3 +433,51 @@ describe('flowKindOf — workflow transitions', () => {
     expect(flowKindOf('createBadge')).toBe('create');
   });
 });
+
+describe('credential getters that break the naming convention', () => {
+  // A real project has `getCustomerSupportLevel1()` next to
+  // `getBAPCusCareCredentials()`, doing the same job. Missing it means the
+  // generator invents a getter, or a roles.md entry naming the real one is
+  // reported as a broken reference — a false negative is expensive here, while
+  // a false positive is one extra name in a list.
+  it('finds a getter named without the Credentials suffix', () => {
+    write(
+      'packages/data/BAP.ts',
+      `/** Customer support, level 1 */
+       export function getCustomerSupportLevel1() {
+         return { username: 'cs1', password: 'secret' };
+       }`,
+    );
+    const creds = scan(['packages/data']).credentials;
+    expect(creds.map((c) => c.getter)).toEqual(['getCustomerSupportLevel1']);
+    expect(creds[0]!.role).toBe('Customer support, level 1');
+  });
+
+  it('finds it through an environment-keyed lookup', () => {
+    write(
+      'packages/data/BAP.ts',
+      `const byEnv = { CCSIT: { username: 'a', password: 'b' } };
+       export function getCustomerSupportLevel1() { return byEnv[process.env.ENV]; }`,
+    );
+    expect(scan(['packages/data']).credentials.map((c) => c.getter)).toEqual([
+      'getCustomerSupportLevel1',
+    ]);
+  });
+
+  it('does not claim every getter in the file', () => {
+    write(
+      'packages/data/BAP.ts',
+      `export function getEnvironmentName() { return 'CCSIT'; }
+       export function getRetryCount() { return 3; }`,
+    );
+    expect(scan(['packages/data']).credentials).toEqual([]);
+  });
+
+  it('still requires a get-prefix, so a random object factory is not a credential', () => {
+    write(
+      'packages/data/BAP.ts',
+      `export function buildLoginPayload() { return { username: 'a', password: 'b' }; }`,
+    );
+    expect(scan(['packages/data']).credentials).toEqual([]);
+  });
+});

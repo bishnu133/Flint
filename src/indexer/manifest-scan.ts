@@ -404,11 +404,79 @@ function readHelpers(file: SourceFile, path: string): HelperEntry[] {
 function readCredentials(file: SourceFile, path: string): CredentialEntry[] {
   const entries: CredentialEntry[] = [];
   for (const fn of exportedCallables(file)) {
-    if (!/^get.*Credentials$/.test(fn.name)) continue;
+    if (!looksLikeCredentialGetter(fn, file)) continue;
     const role = jsDocSummary(fn.docNode) ?? roleFromGetter(fn.name);
     entries.push({ getter: fn.name, file: path, ...(role !== undefined ? { role } : {}) });
   }
   return entries;
+}
+
+/**
+ * Is this function a credential getter?
+ *
+ * Two signals, because one was not enough. The name convention
+ * (`get…Credentials`) catches most of them, but a real project had
+ * `getCustomerSupportLevel1()` sitting in the same file doing the same job — and
+ * missing it means the generator either invents a getter or a `roles.md` entry
+ * naming the real one gets reported as a broken reference. A false negative
+ * here is expensive; a false positive is one extra name in a list.
+ *
+ * So the second signal is what the function returns: an object literal with
+ * both `username` and `password`. That is checkable from syntax alone, which
+ * matters because these files import from workspace packages the scanner
+ * deliberately does not resolve.
+ */
+function looksLikeCredentialGetter(fn: Callable, file: SourceFile): boolean {
+  if (/^get.*Credentials$/.test(fn.name)) return true;
+  if (!/^get[A-Z_]/.test(fn.name)) return false;
+  if (hasCredentialLiteral(fn.body)) return true;
+
+  // The realistic shape: `const byEnv = { CCSIT: { username, password } };`
+  // at module level, and the getter returns `byEnv[env]`. The literal is not
+  // inside the function at all, so following the returned name is the only way
+  // to see it — and this is how the environment-keyed credential files in a
+  // real monorepo are actually written.
+  for (const name of returnedRootNames(fn.body)) {
+    const decl = file.getVariableDeclaration(name);
+    if (decl !== undefined && hasCredentialLiteral(decl)) return true;
+  }
+  return false;
+}
+
+function hasCredentialLiteral(node: Node): boolean {
+  for (const literal of node.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
+    const keys = new Set(
+      literal
+        .getProperties()
+        .map(propertyName)
+        .filter((n): n is string => n !== undefined),
+    );
+    if (keys.has('username') && keys.has('password')) return true;
+  }
+  return false;
+}
+
+/** Base identifier of each returned expression: `byEnv[x].y` -> `byEnv`. */
+function returnedRootNames(body: Node): string[] {
+  const names: string[] = [];
+  for (const statement of body.getDescendantsOfKind(SyntaxKind.ReturnStatement)) {
+    let expression = statement.getExpression();
+    while (expression !== undefined) {
+      if (expression.isKind(SyntaxKind.Identifier)) {
+        names.push(expression.getText());
+        break;
+      }
+      if (
+        expression.isKind(SyntaxKind.PropertyAccessExpression) ||
+        expression.isKind(SyntaxKind.ElementAccessExpression)
+      ) {
+        expression = expression.getExpression();
+        continue;
+      }
+      break;
+    }
+  }
+  return names;
 }
 
 /** `getBAPBadgeSupportCredentials` -> `BAP Badge Support`. */

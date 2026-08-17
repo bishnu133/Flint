@@ -9,6 +9,7 @@ import {
   checkKnowledgeIntegrity,
   isBlocking,
   matchEntity,
+  matchRole,
   matchState,
   near,
 } from './kb-gaps.js';
@@ -360,5 +361,58 @@ describe('formatGapReport — nothing to check is not a pass', () => {
       EMPTY_KNOWLEDGE,
     );
     expect(allGood).toContain('All 1 declared data need(s) are grounded.');
+  });
+});
+
+describe('roles as a data need', () => {
+  // "a BAP user with customer support roles" is the most common precondition in
+  // a real card, and it lives in roles.md rather than as an entity with states.
+  // Checking only entities reported it as undescribed on the first real spec.
+  const roles = [
+    {
+      id: 'customerCare',
+      credentials: 'getBAPCusCareCredentials',
+      aliases: ['customer care', 'customer support'],
+    },
+  ];
+
+  it('grounds a role need to its credential getter', () => {
+    const report = checkKbGaps({
+      spec: spec(['a BAP user with the customer care role']),
+      knowledge: knowledge({ roles }),
+      manifest: {
+        ...MANIFEST,
+        credentials: [{ getter: 'getBAPCusCareCredentials', file: 'packages/data/BAP.ts' }],
+      },
+    });
+    expect(report.gaps).toEqual([]);
+    expect(report.grounded[0]).toEqual({
+      need: 'a BAP user with the customer care role',
+      entity: 'role',
+      state: 'customerCare',
+      via: 'getBAPCusCareCredentials',
+    });
+  });
+
+  it('matches a role by alias', () => {
+    expect(matchRole('a BAP user with customer support roles', roles)?.id).toBe('customerCare');
+  });
+
+  it('reports a role that names no credentials', () => {
+    const report = checkKbGaps({
+      spec: spec(['a customer care user']),
+      knowledge: knowledge({ roles: [{ id: 'customerCare', aliases: ['customer care'] }] }),
+      manifest: MANIFEST,
+    });
+    expect(report.gaps[0]!.fix).toContain('roles.md');
+  });
+
+  it('lists roles alongside entities when nothing matches', () => {
+    const report = checkKbGaps({
+      spec: spec(['something nobody wrote down']),
+      knowledge: knowledge({ roles }),
+      manifest: MANIFEST,
+    });
+    expect(report.gaps[0]!.candidates).toContain('role:customerCare');
   });
 });
