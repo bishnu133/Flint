@@ -25,6 +25,18 @@ export function formatGapReport(reports: GapReport[], knowledge: AppKnowledge): 
   const total = reports.reduce((n, r) => n + r.gaps.length, 0);
   const grounded = reports.reduce((n, r) => n + r.grounded.length, 0);
 
+  // Nothing checked is not the same as everything passing, and "All 0 declared
+  // data need(s) are grounded" reads as a pass. Someone whose specs are in the
+  // wrong directory would take that as confirmation and move on.
+  if (reports.length === 0) {
+    return [
+      'No feature specs found — nothing was checked.',
+      '',
+      'Write one in kb/features/<id>.md with a `dataNeeds:` list, then re-run.',
+      '`_`-prefixed specs are skipped by design.',
+    ].join('\n');
+  }
+
   for (const report of reports) {
     if (report.gaps.length === 0 && report.grounded.length === 0) continue;
     lines.push(`${report.featureId}`);
@@ -52,9 +64,11 @@ export function formatGapReport(reports: GapReport[], knowledge: AppKnowledge): 
   }
 
   lines.push(
-    total === 0
-      ? `All ${grounded} declared data need(s) are grounded.`
-      : `${grounded} grounded, ${total} gap(s) across ${reports.length} feature(s).`,
+    total === 0 && grounded === 0
+      ? `${reports.length} feature(s) checked; none declares a \`dataNeeds:\` list, so there was nothing to ground.`
+      : total === 0
+        ? `All ${grounded} declared data need(s) are grounded.`
+        : `${grounded} grounded, ${total} gap(s) across ${reports.length} feature(s).`,
   );
 
   if (total > 0 && knowledge.entities.length === 0) {

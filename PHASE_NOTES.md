@@ -3048,3 +3048,20 @@ reported with its reason, an undescribed entity reported with candidates, and a
 KB-wide broken flow reference caught that no feature referenced.
 
 Tests: 1074 across 75 files (+40).
+
+### B2.1 — "Nothing checked" is not "everything passed" (2026-08-17)
+
+First run against the real project printed `All 0 declared data need(s) are
+grounded.` for a repository with no feature specs at all. Technically true, and
+it reads as a pass — someone whose specs sat in the wrong directory would take
+it as confirmation and move on.
+
+Third time this class has appeared: the empty manifest that looked like a
+greenfield project, the silent exit that looked like a clean run, and now this.
+The shape is always the same — an absent input produces a well-formed empty
+result, and the summary describes the result rather than the absence.
+
+Now three distinct messages: no specs found at all; specs found but none
+declares `dataNeeds`; and every declared need grounded. Only the third is a pass.
+
+Tests: 1076 across 75 files (+2).

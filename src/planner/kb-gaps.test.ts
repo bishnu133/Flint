@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AppKnowledge, EntityDoc } from '../schemas/kb-app.js';
+import { EMPTY_KNOWLEDGE } from '../schemas/kb-app.js';
+import { formatGapReport } from './kb-report.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { FeatureSpec } from './feature-spec.js';
 import {
@@ -327,5 +329,36 @@ describe('isBlocking', () => {
     expect(isBlocking({ kind: 'dangling-reference' } as never)).toBe(true);
     expect(isBlocking({ kind: 'unreachable-state' } as never)).toBe(true);
     expect(isBlocking({ kind: 'unknown-entity' } as never)).toBe(false);
+  });
+});
+
+describe('formatGapReport — nothing to check is not a pass', () => {
+  // The first run against a real project printed "All 0 declared data need(s)
+  // are grounded" for a repo with no specs at all. Someone whose specs sit in
+  // the wrong directory would read that as confirmation and move on.
+  it('says no specs were found rather than reporting a pass', () => {
+    const out = formatGapReport([], EMPTY_KNOWLEDGE);
+    expect(out).toContain('No feature specs found');
+    expect(out).not.toContain('grounded.');
+  });
+
+  it('distinguishes specs with no data needs from specs that all check out', () => {
+    const noNeeds = formatGapReport(
+      [{ featureId: 'login', gaps: [], grounded: [] }],
+      EMPTY_KNOWLEDGE,
+    );
+    expect(noNeeds).toContain('nothing to ground');
+
+    const allGood = formatGapReport(
+      [
+        {
+          featureId: 'login',
+          gaps: [],
+          grounded: [{ need: 'a user', entity: 'user', state: 'active', via: 'R.m' }],
+        },
+      ],
+      EMPTY_KNOWLEDGE,
+    );
+    expect(allGood).toContain('All 1 declared data need(s) are grounded.');
   });
 });
