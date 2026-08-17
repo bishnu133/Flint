@@ -336,3 +336,78 @@ describe('scanManifest — a wrong path must not look like an empty suite', () =
     expect(scan().warnings).toEqual([]);
   });
 });
+
+describe('scanManifest — the arrow-function shape', () => {
+  // A real miss, caught against a production repo: twenty of twenty-four
+  // repositories appeared to expose nothing but `getInstance`, and it was very
+  // nearly reported as "this framework cannot seed test data". The methods were
+  // there; they were written as class properties, which are not
+  // MethodDeclarations. The same gap applied to flows, where a suite written in
+  // the arrow style would have reported zero flows — telling the generator with
+  // total confidence that there was nothing to reuse.
+  it('finds flows written as exported const arrow functions', () => {
+    write(
+      'e2e/flows/arrow.flow.ts',
+      `import { act } from '../helpers/actions';
+       /** Creates a thing the arrow way. */
+       export const createThing = async (engine: Bubblegum, page: Page): Promise<string> => {
+         await act(engine, 'Click the Create button');
+         return 'x';
+       };`,
+    );
+    const flow = scan().flows.find((f) => f.id === 'arrow.createThing');
+    expect(flow).toBeDefined();
+    expect(flow!.kind).toBe('create');
+    expect(flow!.summary).toBe('Creates a thing the arrow way.');
+    expect(flow!.returns).toBe('Promise<string>');
+    expect(flow!.params.map((p) => p.name)).toEqual(['engine', 'page']);
+    expect(flow!.phrases).toEqual(['Click the Create button']);
+  });
+
+  it('finds repository methods written as class properties', () => {
+    write(
+      'packages/utilities/repository/RoadShowsRepository.ts',
+      `export class RoadShowsRepository extends Repository {
+         public static getInstance(): RoadShowsRepository { return this.instance; }
+         deleteRoadshowByName = async (name: string): Promise<void> => {};
+         seedRoadshow = async (n: string) => {};
+         private secret = async () => {};
+       }`,
+    );
+    const repo = scan(['packages/utilities']).repositories[0]!;
+    expect(repo.methods).toEqual(['deleteRoadshowByName', 'getInstance', 'seedRoadshow']);
+  });
+
+  it('does not expose private class properties', () => {
+    write(
+      'packages/utilities/repository/R.ts',
+      `export class XRepository { private hidden = async () => {}; }`,
+    );
+    expect(scan(['packages/utilities']).repositories[0]!.methods).toEqual([]);
+  });
+
+  it('finds credential getters written as arrow consts', () => {
+    write(
+      'packages/data/BAP.ts',
+      `/** Badge admin */
+       export const getBAPBadgeSupportCredentials = () => ({ username: '', password: '' });`,
+    );
+    expect(scan(['packages/data']).credentials.map((c) => c.getter)).toEqual([
+      'getBAPBadgeSupportCredentials',
+    ]);
+  });
+
+  it('keeps both shapes in one file without duplicating', () => {
+    write(
+      'e2e/flows/mixed.flow.ts',
+      `export async function declared(): Promise<void> {}
+       export const arrowed = async (): Promise<void> => {};
+       const notExported = async () => {};`,
+    );
+    expect(
+      scan()
+        .flows.map((f) => f.id)
+        .filter((id) => id.startsWith('mixed.')),
+    ).toEqual(['mixed.arrowed', 'mixed.declared']);
+  });
+});

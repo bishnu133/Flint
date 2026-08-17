@@ -2913,3 +2913,44 @@ Missing paths are no longer repeated under "could not be parsed" — nothing was
 parsed because nothing was there, which is a different fault.
 
 Tests: 1023 across 73 files (+9).
+
+### B1.2 — The scanner was reading half the codebase (2026-08-17)
+
+Ran against the real project: 20 flows, 16 data exports, 9 helpers, 21
+credentials, 24 repositories — every count matching the operator's own
+inventory. Then the repository detail arrived and 20 of the 24 exposed nothing
+but `getInstance`.
+
+That was about to become a finding: "the framework has no seeding methods, so
+state-dependent JIRA cards cannot be automated." It would have been wrong, and
+it would have redirected two weeks of work.
+
+`ClassDeclaration.getMethods()` returns `MethodDeclaration` nodes only. A method
+written `deleteRoadshowByName = async () => {}` is a `PropertyDeclaration` with
+an arrow initialiser, and was invisible. Verified directly against ts-morph
+before changing anything rather than assuming.
+
+The same gap ran through the whole scanner, and the flow case was worse than the
+repository case: `readFlows` only looked at `FunctionDeclaration`, so a suite
+written `export const loginFlow = async () => {}` would have reported **zero
+flows** — and the manifest would have told the generator, with total confidence,
+that there was nothing to reuse. It would then have duplicated every flow in the
+suite, which is precisely the failure the manifest exists to prevent.
+
+Fixed by unifying on `exportedCallables()`, which returns both shapes with one
+interface. Flows, helpers and credential getters all read through it now;
+repositories get the equivalent via `repositoryOperations()`. `getInstance` is
+kept rather than filtered — noise for the generator, but omitting it would make
+the manifest disagree with the source, and a reader comparing the two should
+find them identical.
+
+The lesson worth keeping: the counts all matched the operator's documentation,
+which is exactly why this nearly passed. Totals agreeing is not evidence that
+the contents are right.
+
+Tests: 1028 across 73 files (+5), including the arrow shape for flows,
+repositories, credentials, and a mixed-shape file.
+
+**Still open:** whether seeding methods exist. `RewardRepository.insertHealthPoints`
+is the only clearly seed-shaped operation in the pre-fix data. Re-run needed
+before drawing any conclusion.

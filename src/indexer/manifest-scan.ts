@@ -4,7 +4,7 @@ import {
   Project,
   SyntaxKind,
   type SourceFile,
-  type FunctionDeclaration,
+  type ClassDeclaration,
   type Node,
   type VariableStatement,
 } from 'ts-morph';
@@ -212,33 +212,91 @@ export function flowKindOf(name: string): FlowKind {
 
 function readFlows(file: SourceFile, path: string): FlowEntry[] {
   const domain = domainOf(path);
-  const entries: FlowEntry[] = [];
-  for (const fn of exportedFunctions(file)) {
-    const name = fn.getName();
-    if (name === undefined || name === '') continue;
-    const summary = jsDocSummary(fn);
-    entries.push({
-      id: `${domain}.${name}`,
+  return exportedCallables(file).map((fn) => {
+    const summary = jsDocSummary(fn.docNode);
+    return {
+      id: `${domain}.${fn.name}`,
       file: path,
-      exportName: name,
+      exportName: fn.name,
       domain,
-      kind: flowKindOf(name),
+      kind: flowKindOf(fn.name),
       ...(summary !== undefined ? { summary } : {}),
-      params: fn.getParameters().map((p) => ({
-        name: p.getName(),
-        type: p.getTypeNode()?.getText() ?? '',
-      })),
-      returns: fn.getReturnTypeNode()?.getText() ?? '',
-      phrases: phrasesIn(fn),
+      params: fn.params,
+      returns: fn.returns,
+      phrases: phrasesIn(fn.body),
       usedBy: [],
-    });
-  }
-  return entries;
+    };
+  });
 }
 
-/** Exported `function` declarations, including `export async function`. */
-function exportedFunctions(file: SourceFile): FunctionDeclaration[] {
-  return file.getFunctions().filter((fn) => fn.isExported());
+/** A named, exported thing that holds a body — however it was declared. */
+interface Callable {
+  name: string;
+  params: Array<{ name: string; type: string }>;
+  returns: string;
+  /** Node to search for `act`/`verify` calls. */
+  body: Node;
+  /** Node the JSDoc hangs off — the statement, for `export const`. */
+  docNode: Node;
+}
+
+/**
+ * Every exported callable in a file, in both shapes TypeScript allows.
+ *
+ * `export async function loginFlow()` and `export const loginFlow = async () =>`
+ * are the same thing to everyone except an AST, which files them under
+ * `FunctionDeclaration` and `PropertyDeclaration`/`VariableDeclaration`
+ * respectively. Reading only the first shape was a real gap: a suite written in
+ * the arrow style would report zero flows and the manifest would tell the
+ * generator, with total confidence, that there is nothing to reuse.
+ */
+function exportedCallables(file: SourceFile): Callable[] {
+  const out: Callable[] = [];
+
+  for (const fn of file.getFunctions()) {
+    const name = fn.getName();
+    if (!fn.isExported() || name === undefined || name === '') continue;
+    out.push({
+      name,
+      params: paramsOf(fn),
+      returns: fn.getReturnTypeNode()?.getText() ?? '',
+      body: fn,
+      docNode: fn,
+    });
+  }
+
+  for (const statement of file.getVariableStatements()) {
+    if (!statement.isExported()) continue;
+    for (const decl of statement.getDeclarations()) {
+      const init = decl.getInitializer();
+      if (init === undefined) continue;
+      if (!init.isKind(SyntaxKind.ArrowFunction) && !init.isKind(SyntaxKind.FunctionExpression)) {
+        continue;
+      }
+      out.push({
+        name: decl.getName(),
+        params: paramsOf(init),
+        returns: init.getReturnTypeNode()?.getText() ?? '',
+        body: init,
+        // JSDoc sits above `export const`, which is the statement, not the
+        // declaration inside it.
+        docNode: statement,
+      });
+    }
+  }
+  return out;
+}
+
+function paramsOf(node: {
+  getParameters: () => Array<{
+    getName: () => string;
+    getTypeNode: () => { getText: () => string } | undefined;
+  }>;
+}): Array<{ name: string; type: string }> {
+  return node.getParameters().map((p) => ({
+    name: p.getName(),
+    type: p.getTypeNode()?.getText() ?? '',
+  }));
 }
 
 /**
@@ -317,37 +375,15 @@ function propertyName(prop: Node): string | undefined {
 
 function readHelpers(file: SourceFile, path: string): HelperEntry[] {
   const stem = basename(path).replace(/\.[cm]?ts$/, '');
-  const entries: HelperEntry[] = [];
-  for (const fn of exportedFunctions(file)) {
-    const name = fn.getName();
-    if (name === undefined || name === '') continue;
-    const summary = jsDocSummary(fn);
-    entries.push({
-      id: `${stem}.${name}`,
+  return exportedCallables(file).map((fn) => {
+    const summary = jsDocSummary(fn.docNode);
+    return {
+      id: `${stem}.${fn.name}`,
       file: path,
-      exportName: name,
+      exportName: fn.name,
       ...(summary !== undefined ? { summary } : {}),
-    });
-  }
-  // `export const act = (...) => ...` is the shape the shared helpers use.
-  for (const statement of file.getVariableStatements()) {
-    if (!statement.isExported()) continue;
-    for (const decl of statement.getDeclarations()) {
-      const init = decl.getInitializer();
-      if (init === undefined) continue;
-      if (!init.isKind(SyntaxKind.ArrowFunction) && !init.isKind(SyntaxKind.FunctionExpression)) {
-        continue;
-      }
-      const summary = jsDocSummary(statement);
-      entries.push({
-        id: `${stem}.${decl.getName()}`,
-        file: path,
-        exportName: decl.getName(),
-        ...(summary !== undefined ? { summary } : {}),
-      });
-    }
-  }
-  return entries;
+    };
+  });
 }
 
 /**
@@ -360,11 +396,10 @@ function readHelpers(file: SourceFile, path: string): HelperEntry[] {
  */
 function readCredentials(file: SourceFile, path: string): CredentialEntry[] {
   const entries: CredentialEntry[] = [];
-  for (const fn of exportedFunctions(file)) {
-    const name = fn.getName();
-    if (name === undefined || !/^get.*Credentials$/.test(name)) continue;
-    const role = jsDocSummary(fn) ?? roleFromGetter(name);
-    entries.push({ getter: name, file: path, ...(role !== undefined ? { role } : {}) });
+  for (const fn of exportedCallables(file)) {
+    if (!/^get.*Credentials$/.test(fn.name)) continue;
+    const role = jsDocSummary(fn.docNode) ?? roleFromGetter(fn.name);
+    entries.push({ getter: fn.name, file: path, ...(role !== undefined ? { role } : {}) });
   }
   return entries;
 }
@@ -393,11 +428,7 @@ function readRepositories(file: SourceFile, path: string): RepositoryEntry[] {
     entries.push({
       className: name,
       file: path,
-      methods: cls
-        .getMethods()
-        .filter((m) => !m.hasModifier(SyntaxKind.PrivateKeyword))
-        .map((m) => m.getName())
-        .sort((a, b) => a.localeCompare(b)),
+      methods: repositoryOperations(cls),
     });
   }
   return entries;
@@ -471,6 +502,37 @@ function jsDocSummary(node: Node): string | undefined {
     .map((l) => l.trim())
     .filter((l) => l !== '')[0];
   return first === undefined || first === '' ? undefined : first;
+}
+
+/**
+ * A repository's usable operations.
+ *
+ * Both declaration shapes, for the same reason flows need both: this codebase
+ * writes some repositories as `async deleteX() {}` and others as
+ * `deleteX = async () => {}`, and reading only the first made twenty of
+ * twenty-four repositories look like they exposed nothing but `getInstance`.
+ * That very nearly became a conclusion about whether the framework could seed
+ * test data at all.
+ *
+ * `getInstance` is kept rather than filtered — it is noise for the generator
+ * but its absence would be a lie about what the class exposes, and a reader
+ * comparing this against the source should find them identical.
+ */
+function repositoryOperations(cls: ClassDeclaration): string[] {
+  const names = cls
+    .getMethods()
+    .filter((m) => !m.hasModifier(SyntaxKind.PrivateKeyword))
+    .map((m) => m.getName());
+
+  for (const prop of cls.getProperties()) {
+    if (prop.hasModifier(SyntaxKind.PrivateKeyword)) continue;
+    const init = prop.getInitializer();
+    if (init === undefined) continue;
+    if (init.isKind(SyntaxKind.ArrowFunction) || init.isKind(SyntaxKind.FunctionExpression)) {
+      names.push(prop.getName());
+    }
+  }
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
 }
 
 function describe(err: unknown): string {
