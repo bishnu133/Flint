@@ -2954,3 +2954,47 @@ repositories, credentials, and a mixed-shape file.
 **Still open:** whether seeding methods exist. `RewardRepository.insertHealthPoints`
 is the only clearly seed-shaped operation in the pre-fix data. Re-run needed
 before drawing any conclusion.
+
+### B1.3 — What the real project actually contains (2026-08-17)
+
+Re-ran after the arrow-function fix. Flow count stayed at 20, so no flows had
+been missed — that suite writes every flow as `export async function`. The
+repositories changed completely: `RoadShowsRepository` went from 1 method to 20,
+`UserRepository` to 30. Total across 24 repositories: **215 methods**, where the
+pre-fix scan saw roughly 40.
+
+**The seeding question is answered, and my worry was wrong.** 14 methods create
+rows, 29 update them:
+
+- `UserRepository.updateGAQ` — the exact precondition HPBPPH-17170 turns on
+- `EventsRepository.backDateEventAndSession`, `updateRoadShowEventStartAndEndDate`,
+  `updateSurveyStartTime`, `updateGoalConfiguarationStartTime` — time-shifting,
+  which is what lifecycle ACs ("today's date > visibility period") need
+- `ChallengeRepository.insertChallengeProgress`, `RewardRepository.insertHealthPoints`
+
+The one real gap for that card: `ActivityRepository` can `deleteMVPA` but has no
+insert, so "user has synced some MVPA progress" has no DB path. Roughly half
+that card's ACs are reachable; the progress-dependent ones are not, without an
+API or app sync.
+
+**One classification miss.** `event-creation.approveActivityByPM` fell into
+`other`. Added a `transition` kind, checked before `create` so `submitForApproval`
+reads as the state change it is rather than a creation. Admin portals are full
+of these, and filing them under `create` would offer the planner an approval
+flow when it asked how to make something.
+
+**One documentation gap in their suite,** which is exactly what the manifest is
+for surfacing: `login.logoutFlow` is the only flow with no JSDoc, so it reaches
+the planner as a bare name. Not Flint's to fix, but worth reporting.
+
+Two observations for B3:
+
+- Flows return their created entity inconsistently — `createRoadshow` returns
+  `Promise<string>`, `createBadge` returns `Promise<void>` and carries the name
+  in a Bubblegum session variable (`{{timestamp as badgeInternalName}}` then
+  `{{$badgeInternalName}}`). The emitter has to support both, and the manifest's
+  `returns` field is what tells it which.
+- The phrase corpus is substantial: 24 phrases in `createBadge`, 60 in
+  `createEdshChallenge`. That is a strong style exemplar for the Stage B prompt.
+
+Tests: 1034 across 73 files (+6).

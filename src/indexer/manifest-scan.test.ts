@@ -411,3 +411,25 @@ describe('scanManifest — the arrow-function shape', () => {
     ).toEqual(['mixed.arrowed', 'mixed.declared']);
   });
 });
+
+describe('flowKindOf — workflow transitions', () => {
+  // `approveActivityByPM` landed in `other` against the real suite. Admin
+  // portals are full of these, and they are the opposite of `create`: the
+  // entity already exists and the state change is the entire point. Filed
+  // under `create`, the planner would be offered an approval flow when it
+  // asked how to make something.
+  it.each([
+    ['approveActivityByPM', 'transition'],
+    ['rejectSubmission', 'transition'],
+    ['publishWorkout', 'transition'],
+    ['cancelRegistration', 'transition'],
+    ['submitForApproval', 'transition'],
+  ])('%s -> %s', (name, kind) => {
+    expect(flowKindOf(name)).toBe(kind);
+  });
+
+  it('still reads plain submit/create as creation', () => {
+    expect(flowKindOf('submitBadge')).toBe('create');
+    expect(flowKindOf('createBadge')).toBe('create');
+  });
+});

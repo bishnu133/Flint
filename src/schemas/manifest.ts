@@ -31,6 +31,16 @@ export const FlowKindSchema = z.enum([
   'create',
   /** `validateBadge`, `verifyStatus` — asserts without changing state. */
   'validate',
+  /**
+   * `approveActivityByPM`, `submitForApproval` — moves an entity through a
+   * workflow without creating it.
+   *
+   * Its own kind because admin portals are full of these and they are the
+   * opposite of `create`: the entity already exists, and the flow's whole
+   * purpose is the state change. Lumping them into `create` would offer the
+   * planner an approval flow when it asked how to make something.
+   */
+  'transition',
   /** `cleanup` — tears down. */
   'cleanup',
   'other',

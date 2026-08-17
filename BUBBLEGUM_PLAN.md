@@ -125,6 +125,16 @@ proven in production; this codifies it.
 1. **`Element.section`** — Bubblegum disambiguates repeated labels in English
    (`"… in the Billing section"`, `"… in dialog"`). Our Element schema has
    neither. Schemas are LOCKED, so this needs explicit approval before B3.
-2. **Seeding vs cleanup** — the manifest now reports repository methods, so
-   pointing `flint manifest` at a real project answers whether preconditions
-   are reachable at all.
+2. ~~**Seeding vs cleanup**~~ — **answered** by running against the real
+   project. Of 215 repository methods, 14 create rows and 29 update them.
+   Critically `UserRepository.updateGAQ` exists, which is the precondition
+   HPBPPH-17170 turns on. Time-shifting helpers are there too
+   (`EventsRepository.backDateEventAndSession`,
+   `updateRoadShowEventStartAndEndDate`, `updateSurveyStartTime`), which is what
+   lifecycle ACs like "today's date > visibility period" need. The gap is
+   activity *data*: `ActivityRepository` can `deleteMVPA` but cannot insert it,
+   so "user has synced some MVPA progress" has no DB path.
+
+   So B2's spec schema needs a `setup:` block that names repository methods,
+   and the gap report has to distinguish "no setup path exists" from "a setup
+   path exists but this spec did not name it".

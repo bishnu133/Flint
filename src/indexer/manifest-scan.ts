@@ -204,6 +204,13 @@ function domainOf(path: string): string {
 export function flowKindOf(name: string): FlowKind {
   if (/^(login|logout|signIn|signOut|authenticate)/i.test(name)) return 'auth';
   if (/^(navigate|goTo|open)/i.test(name)) return 'navigate';
+  // Before `create`, so `submitForApproval` is a transition rather than a
+  // creation — it matches both, and the more specific reading is the true one.
+  if (
+    /^(approve|reject|publish|unpublish|activate|deactivate|archive|cancel|submitFor)/i.test(name)
+  ) {
+    return 'transition';
+  }
   if (/^(create|add|submit|register)/i.test(name)) return 'create';
   if (/^(validate|verify|assert|check|expect)/i.test(name)) return 'validate';
   if (/^(cleanup|teardown|delete|remove|purge)/i.test(name)) return 'cleanup';
