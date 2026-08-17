@@ -2823,3 +2823,245 @@ not make the model repeat itself, it stops asking twice. `--replan` forces a
 fresh plan.
 
 Tests: 976 across 71 files (+15).
+
+### B1 — Suite Manifest (2026-08-17)
+
+First phase of the Bubblegum dialect (`BUBBLEGUM_PLAN.md`). `flint manifest`
+inventories what a suite can already do: flows with their JSDoc summaries,
+params, return types and the `act`/`verify` phrases they issue; data exports
+with their keys; helpers; credential getters; repositories with their public
+methods.
+
+**Why this comes first.** Flint's locked principle is *ground before you
+generate* — the model may never invent a selector, and every `elementRef` is
+checked against the Screen Model before code is written. Bubblegum has no
+selectors, so the rule moves rather than disappearing: the thing that must not
+be invented becomes the **flow**, and the manifest is the evidence. A model
+asked for a login test will call `loginToPortal()` when the export is named
+`loginFlow()`, and the result compiles, imports nothing that exists, and fails
+at run time.
+
+**Derived, never authored.** Regenerated on every run and rewritten after
+generation by re-scanning. A hand-maintained inventory goes stale the first time
+somebody renames a function, and a stale one is worse than none — the
+referential check would then reject valid code and accept invented code. This is
+the same failure this project has produced nine times under other names, so the
+manifest is designed so it cannot happen.
+
+**No model calls.** Names come from declarations, summaries from JSDoc, phrases
+from string literals. A suite following the four-layer convention already
+documents every flow, so the semantic layer is free. That is what makes
+regenerating it on every run affordable.
+
+Three decisions worth recording:
+
+- **Syntax pass, no type checker.** The suite being scanned belongs to somebody
+  else and may not compile — an unresolved workspace import in a monorepo is the
+  normal case. An inventory is most wanted exactly when the build is broken.
+- **Dynamic imports are resolved.** The four-layer test template must use
+  `await import(...)` so `dotenv` runs first. A scanner reading only static
+  imports would report every flow as unused and leave the reuse check with
+  nothing to work with.
+- **Template holes are preserved.** `Enter "${creds.username}" into Username`,
+  not `Enter "" into Username` — the second reads as a bug in the suite and
+  would teach the generator the wrong shape.
+
+Credential getters are matched by naming convention rather than by return type,
+because the type is an inferred object literal in an unresolvable file. A false
+positive costs one extra name in a list; a false negative means an invented
+getter and a test that cannot log in.
+
+**Verified locally** against a four-layer saucedemo fixture (2 flow files, 1
+data file, 2 helpers, 2 credential getters in `packages/data`, 1 repository in
+`packages/utilities`): 4 flows found with correct kinds, phrases, params and
+`usedBy`; `login.logoutFlow` correctly reported as imported by no test.
+
+Tests: 1014 across 73 files (+38).
+
+### B1.1 — A silent failure, caused by my own advice (2026-08-17)
+
+Operator ran `flint manifest` against the real project and got **no output at
+all**. Not an empty summary — nothing, exit 1.
+
+The cause was the `2>/dev/null` in the command I gave them. Errors go to stderr,
+as they should; the redirect I recommended to hide pino's progress line was
+discarding them too. Reproduced exactly: missing `flint.config.ts` → clear
+`ConfigError` on stderr → thrown away → silent exit 1.
+
+Bad advice on my part, and it came directly from 6.8: I moved logs to stderr,
+then told someone to suppress stderr. Three changes so the advice is no longer
+needed and the failure mode is no longer silent.
+
+**The scan's progress line is now `debug`, not `info`.** It only duplicated the
+summary already printed to stdout, so at info level its sole effect was putting
+a JSON blob on stderr that tempts people into `2>/dev/null`. Quiet stderr on
+success is what keeps stderr worth reading on failure.
+
+**A path that does not exist is now a warning, named with its resolved absolute
+path.** This was the next trap waiting: a mistyped `suiteDir` scans nothing and
+returns a perfectly valid manifest full of zeros — indistinguishable from a
+greenfield project, which is a legitimate empty result. `packages/web-tests/src/
+smart-tests` looks right until you see what it resolved against.
+
+**The summary reports path problems above the counts**, and the CLI's closing
+message distinguishes the two cases: "nothing to reuse yet, this is a new suite"
+versus "no files were scanned, fix the paths marked !". The first is
+encouragement, the second is an error, and printing the first when the second is
+true is how someone spends an afternoon debugging a typo.
+
+Missing paths are no longer repeated under "could not be parsed" — nothing was
+parsed because nothing was there, which is a different fault.
+
+Tests: 1023 across 73 files (+9).
+
+### B1.2 — The scanner was reading half the codebase (2026-08-17)
+
+Ran against the real project: 20 flows, 16 data exports, 9 helpers, 21
+credentials, 24 repositories — every count matching the operator's own
+inventory. Then the repository detail arrived and 20 of the 24 exposed nothing
+but `getInstance`.
+
+That was about to become a finding: "the framework has no seeding methods, so
+state-dependent JIRA cards cannot be automated." It would have been wrong, and
+it would have redirected two weeks of work.
+
+`ClassDeclaration.getMethods()` returns `MethodDeclaration` nodes only. A method
+written `deleteRoadshowByName = async () => {}` is a `PropertyDeclaration` with
+an arrow initialiser, and was invisible. Verified directly against ts-morph
+before changing anything rather than assuming.
+
+The same gap ran through the whole scanner, and the flow case was worse than the
+repository case: `readFlows` only looked at `FunctionDeclaration`, so a suite
+written `export const loginFlow = async () => {}` would have reported **zero
+flows** — and the manifest would have told the generator, with total confidence,
+that there was nothing to reuse. It would then have duplicated every flow in the
+suite, which is precisely the failure the manifest exists to prevent.
+
+Fixed by unifying on `exportedCallables()`, which returns both shapes with one
+interface. Flows, helpers and credential getters all read through it now;
+repositories get the equivalent via `repositoryOperations()`. `getInstance` is
+kept rather than filtered — noise for the generator, but omitting it would make
+the manifest disagree with the source, and a reader comparing the two should
+find them identical.
+
+The lesson worth keeping: the counts all matched the operator's documentation,
+which is exactly why this nearly passed. Totals agreeing is not evidence that
+the contents are right.
+
+Tests: 1028 across 73 files (+5), including the arrow shape for flows,
+repositories, credentials, and a mixed-shape file.
+
+**Still open:** whether seeding methods exist. `RewardRepository.insertHealthPoints`
+is the only clearly seed-shaped operation in the pre-fix data. Re-run needed
+before drawing any conclusion.
+
+### B1.3 — What the real project actually contains (2026-08-17)
+
+Re-ran after the arrow-function fix. Flow count stayed at 20, so no flows had
+been missed — that suite writes every flow as `export async function`. The
+repositories changed completely: `RoadShowsRepository` went from 1 method to 20,
+`UserRepository` to 30. Total across 24 repositories: **215 methods**, where the
+pre-fix scan saw roughly 40.
+
+**The seeding question is answered, and my worry was wrong.** 14 methods create
+rows, 29 update them:
+
+- `UserRepository.updateGAQ` — the exact precondition HPBPPH-17170 turns on
+- `EventsRepository.backDateEventAndSession`, `updateRoadShowEventStartAndEndDate`,
+  `updateSurveyStartTime`, `updateGoalConfiguarationStartTime` — time-shifting,
+  which is what lifecycle ACs ("today's date > visibility period") need
+- `ChallengeRepository.insertChallengeProgress`, `RewardRepository.insertHealthPoints`
+
+The one real gap for that card: `ActivityRepository` can `deleteMVPA` but has no
+insert, so "user has synced some MVPA progress" has no DB path. Roughly half
+that card's ACs are reachable; the progress-dependent ones are not, without an
+API or app sync.
+
+**One classification miss.** `event-creation.approveActivityByPM` fell into
+`other`. Added a `transition` kind, checked before `create` so `submitForApproval`
+reads as the state change it is rather than a creation. Admin portals are full
+of these, and filing them under `create` would offer the planner an approval
+flow when it asked how to make something.
+
+**One documentation gap in their suite,** which is exactly what the manifest is
+for surfacing: `login.logoutFlow` is the only flow with no JSDoc, so it reaches
+the planner as a bare name. Not Flint's to fix, but worth reporting.
+
+Two observations for B3:
+
+- Flows return their created entity inconsistently — `createRoadshow` returns
+  `Promise<string>`, `createBadge` returns `Promise<void>` and carries the name
+  in a Bubblegum session variable (`{{timestamp as badgeInternalName}}` then
+  `{{$badgeInternalName}}`). The emitter has to support both, and the manifest's
+  `returns` field is what tells it which.
+- The phrase corpus is substantial: 24 phrases in `createBadge`, 60 in
+  `createEdshChallenge`. That is a strong style exemplar for the Stage B prompt.
+
+Tests: 1034 across 73 files (+6).
+
+### B2 — Knowledge base + gap report (2026-08-17)
+
+`flint kb` reads `kb/app/`, resolves every feature's declared data needs against
+it, and reports what cannot be grounded. Static, deterministic, no model call.
+
+**No LOCKED schema was changed, and the reason is worth recording.** The obvious
+design was a `setup:` block in feature-spec frontmatter, which would have needed
+a change to `kb.ts` and explicit approval. But the schema already has
+`dataNeeds` — "declared data prerequisites" — and the master plan describes it
+for exactly this ("plan declares dataNeeds so humans see required test data").
+
+Using it is also the better design independent of the schema rule. "How does a
+test reach GAQ-unfit" is a fact about the application, not about one feature; a
+dozen specs will need it. A per-spec `setup:` block would copy the same answer
+into a dozen files and guarantee they drift. It is written once in
+`kb/app/entities/gaq.md` and referred to in prose.
+
+**Design decisions:**
+
+- **Prose matching, not a DSL.** A tester writes "a user whose GAQ status is
+  unfit", not `gaq:unfit`. Matching is on whole words against the entity id and
+  its aliases, with hyphens and spaces treated alike so `partial-fit` in the KB
+  meets "partial fit" in a spec. Longest match wins, so `partial-fit` beats
+  `fit`. A syntax strict enough to be unambiguous would simply not be used.
+- **`unreachable:` is a first-class answer.** Without it the planner cannot tell
+  "nobody has written this down" from "there is no way to do this", and will
+  plan a test that can never pass. The MVPA case is real: `ActivityRepository`
+  can `deleteMVPA` but has no insert.
+- **The KB is checked whole, not only where a feature touches it.** A state
+  nobody needs today still names a method, and a rename last week already broke
+  it. Checking only the current spec's path means finding these one at a time,
+  months apart, each time blaming whichever spec was unlucky.
+- **`near()` had to be rewritten mid-phase.** Substring matching missed the
+  mistake people actually make — right noun, wrong verb (`setGAQStatus` for
+  `updateGAQ`), which share no substring. Now compares meaningful words with
+  generic ones (`get`, `update`, `Repository`, `Credentials`) discarded first,
+  since otherwise every repository suggests every other repository on the
+  strength of the word "Repository".
+- **Everything is forgiving.** A malformed entity file is a warning; one bad
+  role does not cost you the other twenty; an absent KB is an empty report. This
+  knowledge gets written by people while they are trying to do something else,
+  and a reader that demanded perfection would ensure it was never written.
+
+**Verified locally** on a BAP-shaped fixture: 3 needs grounded (two via
+`UserRepository.updateGAQ`, one via an existing flow), the MVPA dead end
+reported with its reason, an undescribed entity reported with candidates, and a
+KB-wide broken flow reference caught that no feature referenced.
+
+Tests: 1074 across 75 files (+40).
+
+### B2.1 — "Nothing checked" is not "everything passed" (2026-08-17)
+
+First run against the real project printed `All 0 declared data need(s) are
+grounded.` for a repository with no feature specs at all. Technically true, and
+it reads as a pass — someone whose specs sat in the wrong directory would take
+it as confirmation and move on.
+
+Third time this class has appeared: the empty manifest that looked like a
+greenfield project, the silent exit that looked like a clean run, and now this.
+The shape is always the same — an absent input produces a well-formed empty
+result, and the summary describes the result rather than the absence.
+
+Now three distinct messages: no specs found at all; specs found but none
+declares `dataNeeds`; and every declared need grounded. Only the third is a pass.
+
+Tests: 1076 across 75 files (+2).
