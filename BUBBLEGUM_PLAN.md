@@ -127,6 +127,37 @@ these documents survive.
 - `unreachable:` is a first-class answer, reported with its recorded reason
 - A missing or half-written KB produces a report, never an error
 
+## B2.5 — `flint draft` ✅
+
+**Built.** Reads a requirement document and writes the feature specs, entity
+files and roles it implies.
+
+Added because B2 shipped the half that *checks* a knowledge base and left a
+human to write it — which meant hand-copying facts already sitting in the card
+and the manifest. The operator was right to push back: the KB is intermediate
+output, not a third input.
+
+```
+flint draft ./HPBPPH-17169.md --dir <project>
+```
+
+**The model proposes, Flint disposes.** A drafted state carries a free-text
+`setupHint` — "set the user's GAQ status" — and Flint matches it against the
+manifest. A hint that names a real method becomes `repository:`; one that does
+not becomes a visible TODO with the model's own words and the closest
+candidates. `UserRepository.setGAQStatus` looks exactly as convincing as the
+method that exists, so a near miss must stay a near miss.
+
+**Exit criteria — met:**
+
+- Every spec is written `status: draft` regardless of what the model thought
+- An existing file is never overwritten — the draft lands as `.draft.md` beside
+  it, reported, for a human to diff
+- Out-of-scope requirements are listed with reasons, not silently dropped
+- An ambiguous role is flagged rather than chosen
+- What B2.5 writes, B2 reads: a round-trip test asserts `readAppKnowledge`
+  parses the output with no warnings
+
 ## B3 — Bubblegum emitter + preflight gate
 
 The emitter: `TestPlan` → `<feature>.flow.ts`, `<feature>.data.ts`,

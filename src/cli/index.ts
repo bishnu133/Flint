@@ -10,6 +10,7 @@ import { registerExplore } from './commands/explore.js';
 import { registerIndex } from './commands/index-cmd.js';
 import { registerManifest } from './commands/manifest.js';
 import { registerKb } from './commands/kb.js';
+import { registerDraft } from './commands/draft.js';
 import { registerPlan } from './commands/plan.js';
 import { registerGenerate } from './commands/generate.js';
 import { registerVerify } from './commands/verify.js';
@@ -45,6 +46,7 @@ export function buildProgram(): Command {
   registerIndex(program);
   registerManifest(program);
   registerKb(program);
+  registerDraft(program);
   registerPlan(program);
 
   // Implemented in Phase 4.

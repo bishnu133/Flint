@@ -3099,3 +3099,48 @@ synced against a known GAQ status on a known date, and `ActivityRepository` has
 than waiting on the seeding question.
 
 Tests: 1084 across 75 files (+8).
+
+### B2.5 — `flint draft` (2026-08-17)
+
+The operator pushed back on B2's delivery, correctly. Their model of the tool is
+three inputs — the requirement document, application knowledge, code knowledge —
+where two are derived and one is provided. I had built the checker and then
+hand-written five KB files myself, which contradicted that and would have been a
+per-card chore forever.
+
+Almost nothing in those files needed a human. The states came from the card
+("fit (1) or partial fit (2)… unfit (3)"), the setup path came from a manifest
+method whose name contains GAQ, and the `unreachable` reason for MVPA was a fact
+Flint had already computed in B1. It was a mechanical join of card × manifest.
+
+**The design point: the model proposes, Flint disposes.** The draft schema
+deliberately does not mirror the KB schema. A drafted state carries a free-text
+`setupHint`; the real KB carries `repository: UserRepository.updateGAQ`. The
+model says what needs to happen and Flint decides what it is called, by matching
+against the manifest. Anything unmatched is written as a TODO carrying the
+model's own words, never as the nearest plausible method — `setGAQStatus` reads
+exactly as convincingly as `updateGAQ`, and promoting a near miss to fact would
+produce a knowledge base that looks finished and is quietly wrong.
+
+**Never overwrite.** A file on disk was reviewed by a human; a draft is a first
+guess. Collisions land as `.draft.md` beside the original and are reported.
+Silently replacing a corrected file would make the review step pointless and
+would be indistinguishable from the tool working.
+
+**Review is not a temporary limitation.** HPBPPH-17169 has nine ACs, four of
+which describe a mobile app this suite cannot drive; it carries unresolved
+reviewer comments; and two credential getters could plausibly satisfy "customer
+support roles". A generator that turned all nine into tests would be worse than
+one that says which half it skipped. `outOfScope` and `openQuestions` are
+first-class fields for that reason.
+
+**Verified end to end** against the real card. The live model call could not run
+in this environment (no API key), so the run used a simulated response through
+`FakeProvider`; everything downstream is real. Output: 2 specs, 2 entities, 1
+roles file; `mvpa-data.synced` correctly unresolved with candidates listed;
+the ambiguous role flagged; AC6–AC9 listed as out of scope. Feeding that KB
+straight into `flint kb` reports 4 grounded, 1 gap — the MVPA seeding gap, which
+is the true state of the world.
+
+Tests: 1102 across 76 files (+18), including a round-trip asserting that what
+B2.5 writes, B2 reads without warnings.
