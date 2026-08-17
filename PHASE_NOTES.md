@@ -2998,3 +2998,53 @@ Two observations for B3:
   `createEdshChallenge`. That is a strong style exemplar for the Stage B prompt.
 
 Tests: 1034 across 73 files (+6).
+
+### B2 — Knowledge base + gap report (2026-08-17)
+
+`flint kb` reads `kb/app/`, resolves every feature's declared data needs against
+it, and reports what cannot be grounded. Static, deterministic, no model call.
+
+**No LOCKED schema was changed, and the reason is worth recording.** The obvious
+design was a `setup:` block in feature-spec frontmatter, which would have needed
+a change to `kb.ts` and explicit approval. But the schema already has
+`dataNeeds` — "declared data prerequisites" — and the master plan describes it
+for exactly this ("plan declares dataNeeds so humans see required test data").
+
+Using it is also the better design independent of the schema rule. "How does a
+test reach GAQ-unfit" is a fact about the application, not about one feature; a
+dozen specs will need it. A per-spec `setup:` block would copy the same answer
+into a dozen files and guarantee they drift. It is written once in
+`kb/app/entities/gaq.md` and referred to in prose.
+
+**Design decisions:**
+
+- **Prose matching, not a DSL.** A tester writes "a user whose GAQ status is
+  unfit", not `gaq:unfit`. Matching is on whole words against the entity id and
+  its aliases, with hyphens and spaces treated alike so `partial-fit` in the KB
+  meets "partial fit" in a spec. Longest match wins, so `partial-fit` beats
+  `fit`. A syntax strict enough to be unambiguous would simply not be used.
+- **`unreachable:` is a first-class answer.** Without it the planner cannot tell
+  "nobody has written this down" from "there is no way to do this", and will
+  plan a test that can never pass. The MVPA case is real: `ActivityRepository`
+  can `deleteMVPA` but has no insert.
+- **The KB is checked whole, not only where a feature touches it.** A state
+  nobody needs today still names a method, and a rename last week already broke
+  it. Checking only the current spec's path means finding these one at a time,
+  months apart, each time blaming whichever spec was unlucky.
+- **`near()` had to be rewritten mid-phase.** Substring matching missed the
+  mistake people actually make — right noun, wrong verb (`setGAQStatus` for
+  `updateGAQ`), which share no substring. Now compares meaningful words with
+  generic ones (`get`, `update`, `Repository`, `Credentials`) discarded first,
+  since otherwise every repository suggests every other repository on the
+  strength of the word "Repository".
+- **Everything is forgiving.** A malformed entity file is a warning; one bad
+  role does not cost you the other twenty; an absent KB is an empty report. This
+  knowledge gets written by people while they are trying to do something else,
+  and a reader that demanded perfection would ensure it was never written.
+
+**Verified locally** on a BAP-shaped fixture: 3 needs grounded (two via
+`UserRepository.updateGAQ`, one via an existing flow), the MVPA dead end
+reported with its reason, an undescribed entity reported with candidates, and a
+KB-wide broken flow reference caught that no feature referenced.
+
+Tests: 1074 across 75 files (+40).

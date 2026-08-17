@@ -14,7 +14,10 @@ kb/
 │   └── _example.md    a worked example; `_` keeps it inert
 ├── app/
 │   ├── overview.md    what the app is, in a paragraph
-│   ├── roles.md       user roles and what each can do
+│   ├── glossary.md    business words that never appear on screen
+│   ├── roles.md       user roles, and which credential getter each uses
+│   ├── rules.md       constraints that make a sensible plan wrong
+│   ├── entities/      how a test reaches a given state
 │   ├── environments.md
 │   └── flows/         scripts that reach states no link leads to
 └── conventions.md     how generated tests should look
@@ -186,3 +189,91 @@ editing a generated file is how you tell Flint to defer to you.
 satisfied becomes `test.fixme` with `@needs-setup` and the reason in a comment.
 `flint verify --ready` skips them. This is deliberate: a test that silently
 passes because it never really ran is worse than one that admits it is blocked.
+
+---
+
+## Application knowledge — `kb/app/`
+
+The crawler learns what a page looks like. It cannot learn that GAQ means Get
+Active Questionnaire, that unfit is value 3, or that a user may only change it
+once a day. That half comes from a human, and it lives here.
+
+### Do not write these files upfront
+
+Write your feature spec first, declaring what it needs in plain words:
+
+```yaml
+dataNeeds:
+  - a user whose GAQ status is unfit
+  - a user who has synced some MVPA progress
+```
+
+Then run `flint kb`:
+
+```
+mvpa-badge-gaq
+  ok  a user whose GAQ status is unfit
+        -> gaq.unfit via UserRepository.updateGAQ
+  !!  a user who has synced some MVPA progress   (no way to reach)
+        `mvpa-progress` state `synced` is recorded as unreachable:
+        no DB insert exists — ActivityRepository can only deleteMVPA.
+        fix: Drop this case from the spec, or add a setup path once one exists.
+
+1 grounded, 1 gap(s) across 1 feature(s).
+```
+
+It names the entities your specs actually need and ignores everything else. A BA
+fills in three specific gaps instead of documenting an application in the
+abstract — which is the version that never gets finished.
+
+### `kb/app/entities/<entity>.md`
+
+One file per thing a test must put into a state. Filename is the id.
+
+```yaml
+---
+aliases: [get active questionnaire, fitness status]
+states:
+  unfit:
+    repository: UserRepository.updateGAQ
+    note: value 3
+  never-answered:
+    unreachable: only set by the mobile app on first launch
+---
+```
+
+Four ways to answer "how does a test reach this?" — `repository:`, `flow:`,
+`api:`, or `unreachable:`.
+
+**`repository` and `flow` are checked against your suite.** A method somebody
+renamed is caught by `flint kb`, not by a failing run three weeks later. That is
+the same rule Flint applies to selectors, turned on the knowledge base itself.
+
+**`unreachable:` is a real answer, not a failure.** Left blank, the planner
+cannot tell "nobody wrote this down" from "this cannot be done", and will plan a
+test that can never pass.
+
+**Aliases matter more than they look.** A JIRA card says "fitness status", your
+file is called `gaq`, and without the alias the two never meet.
+
+### The rest
+
+- **`glossary.md`** — term to definition. Add a word when you catch yourself
+  explaining it to a new joiner.
+- **`roles.md`** — role to credential getter. Names the function, never a
+  password. The getter is checked against your suite.
+- **`rules.md`** — a plain list of constraints. "A user may change GAQ once per
+  day" is the sort of thing that makes an otherwise reasonable plan wrong.
+
+### Checking the whole thing
+
+`flint kb` also validates the knowledge base against itself, independent of any
+feature. A state nobody needs today still names a method, and if that method was
+renamed last week the KB is already wrong — you just have not run the feature
+that would notice.
+
+```bash
+flint kb --dir ./my-project           # report
+flint kb --dir ./my-project --strict  # exit 1 on any gap, for CI
+flint kb --dir ./my-project --json    # machine-readable
+```

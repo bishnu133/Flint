@@ -78,7 +78,7 @@ to name them exactly.
 - Deterministic: two scans of one tree agree
 - Empty manifest is valid — the greenfield case is not an error
 
-## B2 — Knowledge base + gap report
+## B2 — Knowledge base + gap report ✅
 
 Feature specs carry what only a human knows: which role runs the test, what
 setup the preconditions need, which repository cleans up.
@@ -93,8 +93,39 @@ something, it says so by name rather than guessing —
   Add to kb/app/entities/gaq.md: how does a test reach this state?
 ```
 
+**Built, and with no change to any LOCKED schema.** The feature-spec schema
+already has `dataNeeds` — "declared data prerequisites" — which is exactly the
+hook this needed. So the app knowledge lives in `kb/app/` and specs refer to it
+in plain words:
+
+```yaml
+dataNeeds:
+  - a user whose GAQ status is unfit
+```
+
+That is also the better design regardless of the schema question: "how does a
+test reach GAQ-unfit" is a property of the application, not of one feature, and
+a dozen specs will want it. Recording it per spec would copy the same answer
+into a dozen files and guarantee they drift.
+
+`flint kb` resolves each need against `kb/app/entities/*.md`, and every
+`repository:` or `flow:` reference against the manifest. Deterministic, no model
+call, so it can run before every `ci` without anyone weighing the cost.
+
 The KB then grows from use rather than from discipline, which is the only way
 these documents survive.
+
+**Exit criteria — met:**
+
+- Prose matching with aliases: "fitness status" finds `gaq`, "partial fit"
+  finds `partial-fit`
+- `repository:` and `flow:` checked against the manifest, with suggestions that
+  survive the real mistake — right noun, wrong verb (`setGAQStatus` →
+  `updateGAQ`)
+- The whole KB is checked independently of any feature, so a reference broken by
+  last week's rename is found now rather than by whichever spec is unlucky
+- `unreachable:` is a first-class answer, reported with its recorded reason
+- A missing or half-written KB produces a report, never an error
 
 ## B3 — Bubblegum emitter + preflight gate
 

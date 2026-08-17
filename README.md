@@ -109,6 +109,8 @@ what it cannot fix with a `fixme` explaining why.
 | `flint plan <feature>`                    | Plan one feature                                                    |
 | `flint generate <feature>`                | Generate one feature's code                                         |
 | `flint verify [--repair]`                 | Run the suite, classify failures, optionally repair                 |
+| `flint manifest`                          | Inventory the suite's flows, data, credentials and repositories     |
+| `flint kb`                                | Check declared data needs against the knowledge base and the suite  |
 | `flint ci`                                | The whole pipeline in one command, headless, `--json` for CI        |
 | `flint bench`                             | Measure the pipeline and write a baseline                           |
 | `flint pr`                                | Commit the suite on a branch; `--push` opens a pull request         |
