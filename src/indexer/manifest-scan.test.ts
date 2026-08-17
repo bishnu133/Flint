@@ -306,3 +306,33 @@ describe('roleFromGetter', () => {
     expect(roleFromGetter('getCredentials')).toBeUndefined();
   });
 });
+
+describe('scanManifest — a wrong path must not look like an empty suite', () => {
+  // The failure this prevents: a mistyped `suiteDir` scans nothing and returns
+  // a perfectly valid manifest full of zeros, indistinguishable from a new
+  // project. Someone then reports "it generated nothing" and there is no
+  // evidence either way.
+  it('warns when suiteDir does not exist', () => {
+    const warnings = scan().warnings;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toMatch(/suiteDir does not exist/);
+  });
+
+  it('names the resolved absolute path, not the relative one', () => {
+    // `packages/web-tests/src/smart-tests` looks correct until you see what it
+    // resolved against.
+    expect(scan().warnings[0]!.file).toContain(root);
+  });
+
+  it('warns per missing --root', () => {
+    seedSuite();
+    const warnings = scan(['packages/data', 'packages/utilities']).warnings;
+    expect(warnings).toHaveLength(2);
+    expect(warnings.every((w) => w.message.includes('--root does not exist'))).toBe(true);
+  });
+
+  it('stays silent when every path exists', () => {
+    seedSuite();
+    expect(scan().warnings).toEqual([]);
+  });
+});

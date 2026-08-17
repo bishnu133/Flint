@@ -5,6 +5,7 @@ import { createLogger } from '../../shared/logger.js';
 import { scanManifest } from '../../indexer/manifest-scan.js';
 import {
   formatManifestSummary,
+  hasMissingRoots,
   manifestPath,
   writeManifest,
 } from '../../indexer/manifest-store.js';
@@ -66,7 +67,14 @@ async function runManifest(opts: ManifestOptions): Promise<void> {
 
   if (!opts.json) {
     console.log(`\nWritten to ${manifestPath(projectRoot)}`);
-    if (isEmptyManifest(manifest)) {
+    if (hasMissingRoots(manifest)) {
+      // An empty manifest here means the scan looked in the wrong place, so the
+      // greenfield message below would be actively misleading.
+      console.log(
+        '\nNo files were scanned. Fix the paths marked ! above — `suiteDir` in\n' +
+          'flint.config.ts and any --root values are relative to the project root.',
+      );
+    } else if (isEmptyManifest(manifest)) {
       // Not a warning: an empty manifest is the correct answer for a project
       // that has not generated anything yet, and the first feature will build
       // the login flow along with everything else.

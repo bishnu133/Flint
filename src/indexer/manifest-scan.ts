@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { relative, resolve, basename } from 'node:path';
 import {
   Project,
@@ -63,6 +64,17 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
     compilerOptions: { allowJs: true, noResolve: true },
   });
 
+  // A path that does not exist reads as an empty scan, and an empty scan is a
+  // legitimate answer for a new project — so without this check a mistyped
+  // `suiteDir` and a greenfield suite are indistinguishable, both reporting
+  // zero of everything. Naming the resolved absolute path matters more than
+  // the warning itself: `packages/web-tests/src/smart-tests` looks right until
+  // you see what it resolved against.
+  missingRootWarning(suiteRoot, 'suiteDir', warnings);
+  for (const root of options.extraRoots ?? []) {
+    missingRootWarning(resolve(options.projectRoot, root), '--root', warnings);
+  }
+
   const suiteFiles = addFiles(project, suiteRoot, logger, warnings);
   const extraFiles = (options.extraRoots ?? []).flatMap((root) =>
     addFiles(project, resolve(options.projectRoot, root), logger, warnings),
@@ -117,7 +129,14 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
       (a, b) => a.file.localeCompare(b.file) || a.message.localeCompare(b.message),
     ),
   };
-  logger.info(
+  // Debug, not info, and the reason is worth stating. This line duplicates the
+  // summary the command already prints to stdout, so at info level its only
+  // effect is to put a JSON blob on stderr that tempts people into
+  // `2>/dev/null` — which then silently discards the errors that share that
+  // stream. A scan that found nothing because the config was missing then looks
+  // exactly like a scan that found nothing because the suite is empty. Quiet
+  // stderr on success is what keeps stderr worth reading on failure.
+  logger.debug(
     {
       flows: manifest.flows.length,
       data: manifest.data.length,
@@ -128,6 +147,18 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
     'manifest: scanned',
   );
   return SuiteManifestSchema.parse(manifest);
+}
+
+function missingRootWarning(
+  absolute: string,
+  which: string,
+  warnings: Array<{ file: string; message: string }>,
+): void {
+  if (existsSync(absolute)) return;
+  warnings.push({
+    file: absolute,
+    message: `${which} does not exist — nothing was scanned from here. Check the path is relative to the project root.`,
+  });
 }
 
 function addFiles(

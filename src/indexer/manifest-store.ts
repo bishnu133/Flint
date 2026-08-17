@@ -53,13 +53,20 @@ export function tryReadManifest(projectRoot: string): SuiteManifest | undefined 
  * the scan look like the suite I have?
  */
 export function formatManifestSummary(manifest: SuiteManifest): string {
-  const lines = [
+  // Path problems go first, above the counts. A wrong `suiteDir` produces a
+  // perfectly valid manifest full of zeros, and a reader who sees the zeros
+  // before the reason concludes the scanner is broken.
+  const missing = manifest.warnings.filter(isMissingPath);
+  const lines: string[] =
+    missing.length === 0 ? [] : [...missing.map((w) => `!  ${w.file}\n   ${w.message}`), ''];
+
+  lines.push(
     `Flows           ${manifest.flows.length}`,
     `Data exports    ${manifest.data.length}`,
     `Helpers         ${manifest.helpers.length}`,
     `Credentials     ${manifest.credentials.length}`,
     `Repositories    ${manifest.repositories.length}`,
-  ];
+  );
 
   const byKind = new Map<string, number>();
   for (const flow of manifest.flows) byKind.set(flow.kind, (byKind.get(flow.kind) ?? 0) + 1);
@@ -80,9 +87,23 @@ export function formatManifestSummary(manifest: SuiteManifest): string {
     if (unused.length > 10) lines.push(`  … and ${unused.length - 10} more`);
   }
 
-  if (manifest.warnings.length > 0) {
-    lines.push('', `${manifest.warnings.length} file(s) could not be parsed:`);
-    for (const w of manifest.warnings.slice(0, 5)) lines.push(`  ${w.file}: ${w.message}`);
+  // Missing paths were already reported at the top, and repeating them here
+  // under "could not be parsed" describes them wrongly — nothing was parsed
+  // because nothing was there.
+  const unparsed = manifest.warnings.filter((w) => !isMissingPath(w));
+  if (unparsed.length > 0) {
+    lines.push('', `${unparsed.length} file(s) could not be parsed:`);
+    for (const w of unparsed.slice(0, 5)) lines.push(`  ${w.file}: ${w.message}`);
   }
   return lines.join('\n');
+}
+
+/** A path that was never there, as opposed to a file that failed to parse. */
+export function isMissingPath(warning: { message: string }): boolean {
+  return warning.message.includes('does not exist');
+}
+
+/** True when any configured root was missing — the scan covered nothing. */
+export function hasMissingRoots(manifest: SuiteManifest): boolean {
+  return manifest.warnings.some(isMissingPath);
 }

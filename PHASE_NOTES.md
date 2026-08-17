@@ -2877,3 +2877,39 @@ data file, 2 helpers, 2 credential getters in `packages/data`, 1 repository in
 `usedBy`; `login.logoutFlow` correctly reported as imported by no test.
 
 Tests: 1014 across 73 files (+38).
+
+### B1.1 — A silent failure, caused by my own advice (2026-08-17)
+
+Operator ran `flint manifest` against the real project and got **no output at
+all**. Not an empty summary — nothing, exit 1.
+
+The cause was the `2>/dev/null` in the command I gave them. Errors go to stderr,
+as they should; the redirect I recommended to hide pino's progress line was
+discarding them too. Reproduced exactly: missing `flint.config.ts` → clear
+`ConfigError` on stderr → thrown away → silent exit 1.
+
+Bad advice on my part, and it came directly from 6.8: I moved logs to stderr,
+then told someone to suppress stderr. Three changes so the advice is no longer
+needed and the failure mode is no longer silent.
+
+**The scan's progress line is now `debug`, not `info`.** It only duplicated the
+summary already printed to stdout, so at info level its sole effect was putting
+a JSON blob on stderr that tempts people into `2>/dev/null`. Quiet stderr on
+success is what keeps stderr worth reading on failure.
+
+**A path that does not exist is now a warning, named with its resolved absolute
+path.** This was the next trap waiting: a mistyped `suiteDir` scans nothing and
+returns a perfectly valid manifest full of zeros — indistinguishable from a
+greenfield project, which is a legitimate empty result. `packages/web-tests/src/
+smart-tests` looks right until you see what it resolved against.
+
+**The summary reports path problems above the counts**, and the CLI's closing
+message distinguishes the two cases: "nothing to reuse yet, this is a new suite"
+versus "no files were scanned, fix the paths marked !". The first is
+encouragement, the second is an error, and printing the first when the second is
+true is how someone spends an afternoon debugging a typo.
+
+Missing paths are no longer repeated under "could not be parsed" — nothing was
+parsed because nothing was there, which is a different fault.
+
+Tests: 1023 across 73 files (+9).

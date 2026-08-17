@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import {
   formatManifestSummary,
+  hasMissingRoots,
   manifestPath,
   readManifest,
   tryReadManifest,
@@ -119,5 +120,58 @@ describe('formatManifestSummary', () => {
       flows: MANIFEST.flows.map((f) => ({ ...f, usedBy: ['tests/x.test.mts'] })),
     };
     expect(formatManifestSummary(allUsed)).not.toContain('not imported');
+  });
+});
+
+describe('formatManifestSummary — missing paths', () => {
+  const missing: SuiteManifest = {
+    ...MANIFEST,
+    flows: [],
+    warnings: [
+      {
+        file: '/abs/packages/WRONG',
+        message: 'suiteDir does not exist — nothing was scanned from here.',
+      },
+    ],
+  };
+
+  it('puts the path problem above the counts', () => {
+    // Someone who reads "Flows 0" before the reason concludes the scanner is
+    // broken, and reports that instead of fixing their path.
+    const out = formatManifestSummary(missing);
+    expect(out.indexOf('/abs/packages/WRONG')).toBeLessThan(out.indexOf('Flows'));
+  });
+
+  it('does not also list it as a parse failure', () => {
+    // Nothing was parsed because nothing was there — a different fault.
+    expect(formatManifestSummary(missing)).not.toContain('could not be parsed');
+  });
+
+  it('still reports genuine parse failures', () => {
+    const both: SuiteManifest = {
+      ...missing,
+      warnings: [
+        ...missing.warnings,
+        { file: 'flows/broken.flow.ts', message: 'Unexpected token' },
+      ],
+    };
+    const out = formatManifestSummary(both);
+    expect(out).toContain('1 file(s) could not be parsed');
+    expect(out).toContain('flows/broken.flow.ts');
+  });
+});
+
+describe('hasMissingRoots', () => {
+  it('is false for a clean scan of a genuinely empty suite', () => {
+    expect(hasMissingRoots({ ...MANIFEST, flows: [], warnings: [] })).toBe(false);
+  });
+
+  it('is true when a root was missing', () => {
+    expect(
+      hasMissingRoots({
+        ...MANIFEST,
+        warnings: [{ file: '/x', message: '--root does not exist — nothing was scanned' }],
+      }),
+    ).toBe(true);
   });
 });
