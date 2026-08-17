@@ -8,6 +8,7 @@ import { registerInit } from './commands/init.js';
 import { registerHelloLlm } from './commands/hello-llm.js';
 import { registerExplore } from './commands/explore.js';
 import { registerIndex } from './commands/index-cmd.js';
+import { registerManifest } from './commands/manifest.js';
 import { registerPlan } from './commands/plan.js';
 import { registerGenerate } from './commands/generate.js';
 import { registerVerify } from './commands/verify.js';
@@ -41,6 +42,7 @@ export function buildProgram(): Command {
   // Implemented in Phase 1.
   registerExplore(program);
   registerIndex(program);
+  registerManifest(program);
   registerPlan(program);
 
   // Implemented in Phase 4.

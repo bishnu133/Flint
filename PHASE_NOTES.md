@@ -2823,3 +2823,57 @@ not make the model repeat itself, it stops asking twice. `--replan` forces a
 fresh plan.
 
 Tests: 976 across 71 files (+15).
+
+### B1 — Suite Manifest (2026-08-17)
+
+First phase of the Bubblegum dialect (`BUBBLEGUM_PLAN.md`). `flint manifest`
+inventories what a suite can already do: flows with their JSDoc summaries,
+params, return types and the `act`/`verify` phrases they issue; data exports
+with their keys; helpers; credential getters; repositories with their public
+methods.
+
+**Why this comes first.** Flint's locked principle is *ground before you
+generate* — the model may never invent a selector, and every `elementRef` is
+checked against the Screen Model before code is written. Bubblegum has no
+selectors, so the rule moves rather than disappearing: the thing that must not
+be invented becomes the **flow**, and the manifest is the evidence. A model
+asked for a login test will call `loginToPortal()` when the export is named
+`loginFlow()`, and the result compiles, imports nothing that exists, and fails
+at run time.
+
+**Derived, never authored.** Regenerated on every run and rewritten after
+generation by re-scanning. A hand-maintained inventory goes stale the first time
+somebody renames a function, and a stale one is worse than none — the
+referential check would then reject valid code and accept invented code. This is
+the same failure this project has produced nine times under other names, so the
+manifest is designed so it cannot happen.
+
+**No model calls.** Names come from declarations, summaries from JSDoc, phrases
+from string literals. A suite following the four-layer convention already
+documents every flow, so the semantic layer is free. That is what makes
+regenerating it on every run affordable.
+
+Three decisions worth recording:
+
+- **Syntax pass, no type checker.** The suite being scanned belongs to somebody
+  else and may not compile — an unresolved workspace import in a monorepo is the
+  normal case. An inventory is most wanted exactly when the build is broken.
+- **Dynamic imports are resolved.** The four-layer test template must use
+  `await import(...)` so `dotenv` runs first. A scanner reading only static
+  imports would report every flow as unused and leave the reuse check with
+  nothing to work with.
+- **Template holes are preserved.** `Enter "${creds.username}" into Username`,
+  not `Enter "" into Username` — the second reads as a bug in the suite and
+  would teach the generator the wrong shape.
+
+Credential getters are matched by naming convention rather than by return type,
+because the type is an inferred object literal in an unresolvable file. A false
+positive costs one extra name in a list; a false negative means an invented
+getter and a test that cannot log in.
+
+**Verified locally** against a four-layer saucedemo fixture (2 flow files, 1
+data file, 2 helpers, 2 credential getters in `packages/data`, 1 repository in
+`packages/utilities`): 4 flows found with correct kinds, phrases, params and
+`usedBy`; `login.logoutFlow` correctly reported as imported by no test.
+
+Tests: 1014 across 73 files (+38).
