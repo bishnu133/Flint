@@ -260,6 +260,13 @@ export function formatDraftSummary(
   lines.push(`Drafted ${files.length} file(s):`);
   for (const file of files) {
     lines.push(`  ${file.path}${file.diverted ? '   (existing file kept — diff these)' : ''}`);
+    // What each feature claims to cover, inline. Without it the summary shows
+    // a file count and nothing about the split, so a run that collapsed five
+    // requirements into one feature reads identically to one that dropped four.
+    const feature = draft.features.find((f) => file.path.endsWith(`/${f.id}.md`));
+    if (feature !== undefined && feature.covers.length > 0) {
+      lines.push(`      covers: ${feature.covers.join('; ')}`);
+    }
   }
 
   if (draft.outOfScope.length > 0) {

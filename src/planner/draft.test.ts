@@ -459,3 +459,42 @@ describe('the prompt teaches the splitting rules that a live run got wrong', () 
     expect(text().replace(/\s+/g, ' ')).toContain('would a test have to *set this up*');
   });
 });
+
+describe('the summary shows what each feature claims to cover', () => {
+  // A run that collapsed five requirements into one feature printed the same
+  // shape as one that dropped four of them: a file count and nothing else.
+  // The split is the thing a reviewer most needs to see.
+  it('prints covers beside the spec file', () => {
+    const out = formatDraftSummary(
+      DRAFT,
+      [],
+      [{ path: 'kb/features/unfit-mvpa-column.md', contents: '', diverted: false }],
+    );
+    expect(out).toContain('covers: AC1');
+  });
+
+  it('says nothing when a feature cites no requirement', () => {
+    const uncited = { ...DRAFT, features: [{ ...DRAFT.features[0]!, covers: [] }] };
+    const out = formatDraftSummary(
+      uncited,
+      [],
+      [{ path: 'kb/features/unfit-mvpa-column.md', contents: '', diverted: false }],
+    );
+    expect(out).not.toContain('covers:');
+  });
+});
+
+describe('the prompt resolves the two splitting rules against each other', () => {
+  const text = () =>
+    loadAndRender('draft-kb', { document: 'D', suite: 'S', screens: 'SC', existing: 'E' }).text;
+
+  it('says preconditions win over shape', () => {
+    // Strengthening the merge rule alone swung a run from four features to one,
+    // locking a requirement that needed no setup in with ones that cannot run.
+    expect(text()).toContain('preconditions win');
+  });
+
+  it('forbids a requirement going missing', () => {
+    expect(text().replace(/\s+/g, ' ')).toContain('Nothing may disappear');
+  });
+});

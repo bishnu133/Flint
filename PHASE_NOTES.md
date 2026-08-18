@@ -3226,3 +3226,40 @@ populated `kb/`; it cannot help when two different exports of one card are
 drafted into an empty one.
 
 Tests: 1114 across 76 files (+6).
+
+### B2.5.3 — Fixing one splitting rule broke the other (2026-08-18)
+
+Third run on the same card: ids sane (`fit-unfit-mvpa-column`, 21 characters),
+entities down to `gaq` and `mvpa-data`, `h365-user` and `tracker` gone,
+`unresolved: 0` — the model read the manifest, found no MVPA insert, and marked
+the state `unreachable` rather than inventing a hint. Every fix from B2.5.2
+landed.
+
+And the feature count went 4 → **1**.
+
+The card has roughly five BAP-side acceptance criteria. One of them, the column
+appearing after the MVPA column, needs no data at all; the rest need MVPA synced
+against a known GAQ status, which the manifest says is impossible. Those are
+precisely the "different preconditions" case the prompt already called out —
+but I had just strengthened the *merge* rule ("requirements that differ only by
+data are one feature") with a worked example, and it swamped the split rule.
+The one requirement that could ship today is now locked in with four that
+cannot.
+
+Three changes:
+
+- **Explicit precedence: preconditions win.** Merge on shape, split on what it
+  takes to run. Two requirements that differ only by data still belong apart if
+  one needs setup the other does not — merging buys tidiness and costs a feature
+  that could have shipped.
+- **Nothing may disappear.** Every requirement ends up in exactly one place: a
+  feature's `covers`, or `outOfScope` with a reason. Neither is worse than a bad
+  split, because a bad split is at least visible.
+- **The summary now prints each feature's `covers`.** This is the fix that
+  matters most, and it is not about prompting. The run above printed a file
+  count and nothing about the split, so "collapsed five requirements into one"
+  and "dropped four of them" produced identical output — I could not tell which
+  had happened from the log, and neither could the operator. The evidence a
+  reviewer needs was being computed and thrown away.
+
+Tests: 1118 across 76 files (+4).

@@ -1,4 +1,4 @@
-<!-- version: 3 -->
+<!-- version: 4 -->
 
 <!--
 B2.5 — turn a requirement document into a draft knowledge base.
@@ -50,6 +50,11 @@ One feature per coherent journey, not one per requirement.
   needs nothing but a login can ship today; one that needs seeded data may be
   blocked for weeks. Splitting them means the first is not held hostage by the
   second.
+
+**When the two rules disagree, preconditions win.** Two requirements that differ
+only by data still belong apart if one of them needs setup the other does not.
+Merging them buys tidiness and costs a feature that could have shipped —
+a bad trade every time. Merge on shape; split on what it takes to run.
 - Give each feature a kebab-case `id` of **three or four words**. It becomes a
   filename, a spec name, and the `@feature:<id>` tag printed beside every test
   result, so length is not free.
@@ -62,6 +67,12 @@ One feature per coherent journey, not one per requirement.
 
 Put the requirements each feature covers into `covers`, quoted from the
 document. A reviewer uses it to check your split without re-reading the source.
+
+**Nothing may disappear.** Every requirement in the document ends up in exactly
+one place: a feature's `covers`, or `outOfScope` with a reason. A requirement
+that is in neither has been silently dropped, and a reviewer comparing your
+output against the card will not find it — which is worse than a bad split,
+because a bad split is visible.
 
 # Preconditions: `dataNeeds`
 
