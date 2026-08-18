@@ -6,6 +6,7 @@ import { parse as parseYaml } from 'yaml';
 import { FakeProvider } from '../llm/fake.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { DraftedKb } from '../schemas/draft.js';
+import { DraftedKbSchema } from '../schemas/draft.js';
 import { documentWarning, draftKnowledgeBase, resolveSetup } from './draft.js';
 import { loadAndRender } from '../generator/template-loader.js';
 import { formatDraftSummary, renderDraft, writeDraft } from './draft-writer.js';
@@ -405,5 +406,56 @@ describe('documentWarning', () => {
   it('names the format when the extension is a known noisy one', () => {
     expect(documentWarning('a'.repeat(200_000), 'card.xml')).toMatch(/\.xml/);
     expect(documentWarning('a'.repeat(200_000), 'card.html')).toMatch(/\.html/);
+  });
+});
+
+describe('feature ids are capped, because they become filenames and tags', () => {
+  // A live run produced `activity-data-mvpa-split-on-gaq-status-change-within-day`
+  // — 56 characters, which would appear beside every test result for the life
+  // of the suite. Rejecting it costs one short retry.
+  const withId = (id: string) => ({ ...DRAFT, features: [{ ...DRAFT.features[0]!, id }] });
+
+  it('rejects an id long enough to make test output unreadable', () => {
+    const result = DraftedKbSchema.safeParse(
+      withId('activity-data-mvpa-split-on-gaq-status-change-within-day'),
+    );
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result)).toContain('three or four words');
+  });
+
+  it('accepts a sensible one', () => {
+    expect(DraftedKbSchema.safeParse(withId('unfit-mvpa-column')).success).toBe(true);
+  });
+
+  it('still rejects non-kebab-case', () => {
+    expect(DraftedKbSchema.safeParse(withId('Unfit_MVPA_Column')).success).toBe(false);
+  });
+});
+
+describe('the prompt teaches the splitting rules that a live run got wrong', () => {
+  const text = () =>
+    loadAndRender('draft-kb', {
+      document: 'D',
+      suite: 'S',
+      screens: 'SC',
+      existing: 'E',
+    }).text;
+
+  it('gives a concrete example of two requirements that are one feature', () => {
+    // The abstract rule was already there and was not enough: one run split
+    // "value in column A when status P" from "value in column B when status Q".
+    expect(text()).toContain('are **one** feature');
+  });
+
+  it('says what an id should cost', () => {
+    expect(text()).toContain('three or four words');
+  });
+
+  it('tests an entity by whether a test must set it up', () => {
+    // One run proposed `h365-user` and `tracker` as entities — nouns from the
+    // document that no test would ever have to put into a state.
+    // Whitespace-insensitive: the phrase wraps across lines in the template,
+    // and a test that breaks on rewrapping would be a test of the line width.
+    expect(text().replace(/\s+/g, ' ')).toContain('would a test have to *set this up*');
   });
 });

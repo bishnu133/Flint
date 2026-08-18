@@ -1,4 +1,4 @@
-<!-- version: 2 -->
+<!-- version: 3 -->
 
 <!--
 B2.5 — turn a requirement document into a draft knowledge base.
@@ -28,6 +28,10 @@ is a finding, not a failure — it tells a human which half of their card is
 automatable. Silently dropping it, or worse, writing a test for a screen that
 does not exist here, wastes an afternoon.
 
+Only things the document actually asks for. A document's own "out of scope"
+section lists things that were never requirements; repeating them back adds
+length without adding information.
+
 # Splitting into features
 
 One feature per coherent journey, not one per requirement.
@@ -35,13 +39,26 @@ One feature per coherent journey, not one per requirement.
 - Requirements that differ only by **data** belong in one feature. If two rows
   of an acceptance-criteria table describe the same journey with the values
   swapped, that is one data-driven feature, not two.
+
+  Concretely: "value X appears in column A when the status is P" and "value X
+  appears in column B when the status is Q" are **one** feature. Same screen,
+  same journey, same assertion shape — only the status and the column differ.
+  Splitting them produces two near-identical specs that will be maintained
+  together forever and reviewed as duplicates.
 - Requirements that need **different preconditions** belong in different
   features — especially when some need no setup at all. A requirement that
   needs nothing but a login can ship today; one that needs seeded data may be
   blocked for weeks. Splitting them means the first is not held hostage by the
   second.
-- Give each feature a kebab-case `id` that will still make sense in a year.
-  Not `story-17169`. The card number goes in the body.
+- Give each feature a kebab-case `id` of **three or four words**. It becomes a
+  filename, a spec name, and the `@feature:<id>` tag printed beside every test
+  result, so length is not free.
+
+  `unfit-mvpa-column` — good.
+  `activity-data-mvpa-split-on-gaq-status-change-within-day` — too long; the
+  detail belongs in `title`, which has no limit.
+
+  Not `story-17169` either: the card number goes in the body.
 
 Put the requirements each feature covers into `covers`, quoted from the
 document. A reviewer uses it to check your split without re-reading the source.
@@ -63,8 +80,14 @@ would otherwise run.
 
 # Entities and states
 
-For each thing a test must put into a particular state, propose an entity with
-its states.
+For each thing a test must **put into a particular state**, propose an entity
+with its states.
+
+That qualifier is the whole test for whether an entity is worth proposing. A
+noun the document mentions is not automatically an entity. Ask: would a test
+have to *set this up* before it could run? If the answer is no — it is just
+something the feature reads, or a synonym for a state of something else — leave
+it out. Entities nobody sets up become files nobody fills in.
 
 - `entity` is kebab-case and singular-ish: `gaq`, `badge`, `mvpa-data`.
 - `aliases` is where you earn your keep. List **every** other name the document

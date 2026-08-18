@@ -63,9 +63,20 @@ export type DraftRole = z.infer<typeof DraftRoleSchema>;
 
 export const DraftFeatureSchema = z
   .object({
+    /**
+     * Capped, because this is not just a key.
+     *
+     * It becomes the spec filename, the emitted `<id>.spec.ts`, and the
+     * `@feature:<id>` tag on every generated test — so an over-long one makes
+     * `playwright test` output unreadable for the life of the suite. A live run
+     * produced `activity-data-mvpa-split-on-gaq-status-change-within-day`, 56
+     * characters. Failing validation here is cheap: the provider retries with
+     * the error attached and the second attempt is short.
+     */
     id: z
       .string()
       .min(1)
+      .max(48, 'id is too long — three or four words, e.g. `unfit-mvpa-column`')
       .regex(/^[a-z0-9][a-z0-9-]*$/, 'id must be kebab-case'),
     title: z.string().min(1),
     priority: FeaturePrioritySchema.default('p1'),

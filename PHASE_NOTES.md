@@ -3180,3 +3180,49 @@ a 16x multiple of markup, billed on every run. `documentWarning` says so once,
 naming the extension, rather than letting it pass silently.
 
 Tests: 1108 across 76 files (+6).
+
+### B2.5.2 — First working draft, and what it got wrong (2026-08-18)
+
+`flint draft` ran against the real card twice. Both succeeded. 21,443 in /
+11,235 out on one export, 20,381 / 7,875 on the other — about $0.12–$0.16 a card
+at Sonnet 5 list. The markdown export cut total input from 49,705 to ~21,000;
+the rest is the manifest listing, which is large for a 24-repository monorepo.
+
+**What it got right is the part I expected to be hardest.** The scope split was
+sharp: it separated the H365 mobile ACs from the BAP portal ones by reasoning
+from the flow listing ("the suite's flow listing contains only admin-portal
+journeys… no H365 end-user app flows"), and it flagged
+"customer care cannot manually enter MVPA data" as untestable because no such
+screen appears anywhere in the suite. It also spotted `GenericRepository.executeQuery`
+as a possible seeding escape hatch, which I had not thought of.
+
+Most striking, one open question read: *"Ada Wong's first comment questioned
+whether unfit MVPA data is visible on H365 'or BAP' — the resolution in the
+thread is ambiguous ('you're right on both items' refers to a different
+sub-question)."* That is exactly the class of thing I argued review exists to
+catch, found by the tool.
+
+**Three mechanical faults, all fixed here.**
+
+- **Feature ids up to 56 characters**
+  (`activity-data-mvpa-split-on-gaq-status-change-within-day`). The prompt said
+  "make sense in a year" and it overcorrected. This is not cosmetic: the id
+  becomes the spec filename and the `@feature:<id>` tag printed beside every
+  test result for the life of the suite. Now capped at 48 in the schema — a
+  failed parse costs one short retry — with "three or four words" and a
+  worked contrast in the prompt.
+- **Over-splitting.** One run produced three features where two ACs differed
+  only by which column a value lands in. The abstract rule ("requirements that
+  differ only by data belong in one feature") was already there and was not
+  enough; it now carries the concrete shape.
+- **Entity proliferation.** `h365-user` and `tracker` were proposed as entities
+  — nouns from the document that no test would ever set up. The prompt now
+  makes that the test: would a test have to *set this up* before it could run?
+
+The two runs also disagreed on entity naming (`gaq` vs `gaq-status`), which
+matters because a rename means a re-draft proposes a duplicate rather than
+extending. The existing-KB context handles this on a second run against a
+populated `kb/`; it cannot help when two different exports of one card are
+drafted into an empty one.
+
+Tests: 1114 across 76 files (+6).
