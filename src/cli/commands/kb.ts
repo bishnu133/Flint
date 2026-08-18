@@ -97,7 +97,7 @@ async function runKb(opts: KbOptions): Promise<void> {
       : [{ featureId: 'knowledge base', gaps: integrity, grounded: [] }, ...reports];
 
   if (opts.json) {
-    console.log(JSON.stringify(gapSummary(all), null, 2));
+    console.log(JSON.stringify(gapSummary(all, knowledge), null, 2));
   } else {
     console.log(formatGapReport(all, knowledge));
   }

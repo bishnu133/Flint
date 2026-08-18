@@ -90,6 +90,20 @@ export const RoleDocSchema = z
     id: z.string().min(1),
     /** `getBAPBadgeSupportCredentials` — checked against the manifest. */
     credentials: z.string().min(1).optional(),
+    /**
+     * Why a human has to confirm `credentials` before anything runs.
+     *
+     * `flint draft` matches a role the document describes ("Vendor Admins")
+     * against the getters the suite exports, and often more than one could fit.
+     * The name resolves, so the integrity check passes and every test built on
+     * it runs — as the wrong user, failing on an access assertion that is
+     * actually correct. That is a day lost to a question nobody was asked.
+     *
+     * A guess is therefore written *with* this field rather than silently. It
+     * blocks nothing; it is reported by `flint kb` until somebody deletes the
+     * line, which is the act of confirming.
+     */
+    review: z.string().min(1).optional(),
     description: z.string().min(1).optional(),
     aliases: z.array(z.string()).default([]),
   })

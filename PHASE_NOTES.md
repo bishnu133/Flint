@@ -3328,3 +3328,40 @@ Phase 0 schemas are LOCKED, so this needs explicit approval.
 Tests: 1131 across 76 files (+13). The 11 failing files in this container are
 all `src/explorer/*` and fail on Chromium launch — environmental, unrelated to
 this change.
+
+### B2.5.5 — A guessed credential is not a gap, which is why it needs a marker (2026-08-18)
+
+`flint draft` matches the role a document describes ("Vendor Admins") against
+the credential getters the suite exports. Often more than one fits — the live
+run offered `getBAPActivityVendorAdminUserCredentials` and
+`getActivityVendorAdminCredentials` and could not tell them apart, because
+nothing in the card says which account holds the access.
+
+Until now the guess was written as fact and the doubt was printed once, in a
+"Needs a human" section of `roles.md` that nobody re-reads. That is the worst
+possible place for it: the getter *exists*, so `checkKnowledgeIntegrity` passes,
+`flint kb` reports zero gaps, and every test built on the role runs — as the
+wrong user, failing an access assertion that is actually correct.
+
+`RoleDoc` gains an optional `review?: string`, written beside `credentials`
+whenever the getter was chosen by name rather than named by the document:
+
+```yaml
+roles:
+  - id: vendorAdmin
+    credentials: getActivityVendorAdminCredentials
+    review: more than one getter could fit "Vendor Admins" — …. Confirm which
+      account has the access, then delete this line.
+```
+
+`flint kb` prints these under "Waiting on you before this runs", including when
+no feature spec exists yet — the short-circuit for an empty `kb/features/` would
+otherwise swallow them, which is the same absent-input trap recorded three times
+above. `gapSummary` carries them as `needsReview` for `--json`.
+
+Deleting the line is the act of confirming, so the answer lives in the file
+under review rather than in whoever read the terminal that day. It blocks
+nothing: a wrong guess and an unreviewed guess look identical to a checker, and
+refusing to run on that basis would train people to delete the line unread.
+
+Tests: 1137 across 76 files (+6).

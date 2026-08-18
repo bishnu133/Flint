@@ -274,6 +274,39 @@ describe('renderDraft — the files a human reviews', () => {
     );
   });
 
+  it('marks a guessed credential for review in the file itself', () => {
+    // A guessed getter passes every check Flint has — the name exists — and
+    // then runs the whole feature as the wrong user, failing an access
+    // assertion that is correct. The marker travels with the file, so the
+    // question survives whoever happened to read the terminal that day.
+    const roles = render().find((f) => f.path.endsWith('roles.md'))!;
+    const fm = parseYaml(splitFrontmatter(roles.contents).frontmatter!) as {
+      roles: Array<Record<string, string>>;
+    };
+    expect(fm.roles[0]!['review']).toContain('more than one getter could fit');
+    expect(fm.roles[0]!['review']).toContain('delete this line');
+  });
+
+  it('does not mark a getter the document named outright', () => {
+    const exact: DraftedKb = {
+      ...DRAFT,
+      roles: [{ id: 'cusCare', aliases: [], credentialsHint: 'getBAPCusCareCredentials' }],
+    };
+    const files = renderDraft({
+      draft: exact,
+      resolutions: [],
+      manifest: MANIFEST,
+      kbDir: 'kb',
+      source: 'card.md',
+      projectRoot: root,
+    });
+    const fm = parseYaml(
+      splitFrontmatter(files.find((f) => f.path.endsWith('roles.md'))!.contents).frontmatter!,
+    ) as { roles: Array<Record<string, string>> };
+    expect(fm.roles[0]!['credentials']).toBe('getBAPCusCareCredentials');
+    expect(fm.roles[0]!['review']).toBeUndefined();
+  });
+
   it('flags an ambiguous role rather than quietly choosing', () => {
     // Two getters could fit "customer support". Picking one silently is a coin
     // flip that reads as a decision.

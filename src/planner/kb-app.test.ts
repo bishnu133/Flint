@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readAppKnowledge } from './kb-app.js';
+import { formatGapReport, gapSummary } from './kb-report.js';
+import { EMPTY_KNOWLEDGE } from '../schemas/kb-app.js';
 
 /**
  * Every read here is forgiving by design. This knowledge is written by people,
@@ -128,5 +130,47 @@ describe('an absent knowledge base', () => {
     const knowledge = read();
     expect(knowledge.entities).toEqual([]);
     expect(knowledge.warnings).toEqual([]);
+  });
+});
+
+describe('a credential Flint guessed is reported until somebody confirms it', () => {
+  // Not a gap: the getter exists and every integrity check passes. That is
+  // exactly why it needs saying — a role bound to the wrong real account runs
+  // the feature as the wrong user and fails an access assertion that is right.
+  const knowledge = {
+    ...EMPTY_KNOWLEDGE,
+    roles: [
+      {
+        id: 'vendorAdmin',
+        credentials: 'getActivityVendorAdminCredentials',
+        aliases: [],
+        review: 'more than one getter could fit "Vendor Admins". Confirm, then delete this line.',
+      },
+    ],
+  };
+
+  it('prints it in the report', () => {
+    const out = formatGapReport([{ featureId: 'f', gaps: [], grounded: [] }], knowledge);
+    expect(out).toContain('Waiting on you before this runs');
+    expect(out).toContain('vendorAdmin -> getActivityVendorAdminCredentials');
+  });
+
+  it('prints it even when no feature spec exists yet', () => {
+    // The absent-input trap this project keeps falling into: with no specs the
+    // report short-circuits, and a pending review would vanish with it.
+    expect(formatGapReport([], knowledge)).toContain('Waiting on you');
+  });
+
+  it('carries it into --json', () => {
+    expect(gapSummary([], knowledge).needsReview.map((r) => r.id)).toEqual(['vendorAdmin']);
+  });
+
+  it('says nothing once the line is deleted', () => {
+    const confirmed = {
+      ...knowledge,
+      roles: [{ id: 'vendorAdmin', credentials: 'getActivityVendorAdminCredentials', aliases: [] }],
+    };
+    expect(formatGapReport([], confirmed)).not.toContain('Waiting on you');
+    expect(gapSummary([], confirmed).needsReview).toEqual([]);
   });
 });

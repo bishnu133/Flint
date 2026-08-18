@@ -214,18 +214,26 @@ function renderRoles(draft: DraftedKb, manifest: SuiteManifest, source: string):
     const exact = getters.find((g) => g === hint);
     const candidates = exact !== undefined ? [exact] : near(hint, getters);
 
-    if (candidates.length === 1) {
+    if (exact !== undefined) {
+      entry['credentials'] = exact;
+    } else if (candidates.length >= 1) {
+      // Nothing matched by name, so this is a guess however plausible it looks.
+      // It is written with a `review:` line beside it: a wrong-but-existing
+      // getter passes every check Flint has and then runs the whole feature as
+      // the wrong user, failing an access assertion that is actually correct.
+      // The marker is what turns that into a question somebody gets asked.
       entry['credentials'] = candidates[0];
-    } else if (candidates.length > 1) {
-      // Two getters could fit and the document does not say which. Picking one
-      // would be a coin flip that looks like a decision.
-      entry['credentials'] = candidates[0];
+      entry['review'] =
+        candidates.length > 1
+          ? `more than one getter could fit "${hint}" — ${candidates.join(', ')}. Confirm which account has the access, then delete this line.`
+          : `matched "${hint}" by name, not by fact. Confirm this account has the access, then delete this line.`;
       notes.push(
-        `- \`${role.id}\`: more than one getter could fit — ` +
+        `- \`${role.id}\`: ${candidates.length > 1 ? 'more than one getter could fit' : 'matched by name only'} — ` +
           `${candidates.map((c) => `\`${c}\``).join(', ')}. ` +
           `\`${candidates[0]}\` was used; confirm which account has the access.`,
       );
     } else {
+      entry['review'] = `no credential getter matched "${hint}". Add one, or name the right getter here.`;
       notes.push(`- \`${role.id}\`: no credential getter matched "${hint}". Add one.`);
     }
 

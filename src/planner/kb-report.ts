@@ -34,6 +34,12 @@ export function formatGapReport(reports: GapReport[], knowledge: AppKnowledge): 
       '',
       'Write one in kb/features/<id>.md with a `dataNeeds:` list, then re-run.',
       '`_`-prefixed specs are skipped by design.',
+      // Reported here too: a pending credential review is a fact about the KB,
+      // not about the specs, and staying silent about it because no spec exists
+      // yet is how it gets forgotten.
+      ...(pendingReviews(knowledge).length > 0
+        ? ['', ...reviewLines(knowledge)]
+        : []),
     ].join('\n');
   }
 
@@ -63,6 +69,12 @@ export function formatGapReport(reports: GapReport[], knowledge: AppKnowledge): 
     lines.push('');
   }
 
+  // Credentials Flint guessed. Not a gap — the getter exists and every check
+  // passes — which is exactly why it needs saying out loud. A role bound to the
+  // wrong real account runs the whole feature as the wrong user and fails an
+  // access assertion that is correct.
+  if (pendingReviews(knowledge).length > 0) lines.push(...reviewLines(knowledge), '');
+
   lines.push(
     total === 0 && grounded === 0
       ? `${reports.length} feature(s) checked; none declares a \`dataNeeds:\` list, so there was nothing to ground.`
@@ -84,12 +96,38 @@ export function formatGapReport(reports: GapReport[], knowledge: AppKnowledge): 
   return lines.join('\n');
 }
 
+function reviewLines(knowledge: AppKnowledge): string[] {
+  const lines = ['Waiting on you before this runs:'];
+  for (const role of pendingReviews(knowledge)) {
+    lines.push(
+      `  ??  ${role.id}${role.credentials !== undefined ? ` -> ${role.credentials}` : ''}`,
+      `        ${role.review!}`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * Roles whose credential getter Flint chose rather than read.
+ *
+ * The line survives until a human deletes it, and deleting it is the act of
+ * confirming — so the state "somebody checked this" is recorded in the file
+ * itself rather than in whoever happened to read the terminal that day.
+ */
+export function pendingReviews(knowledge: AppKnowledge): AppKnowledge['roles'] {
+  return knowledge.roles.filter((role) => role.review !== undefined);
+}
+
 /** Machine-readable form, for `--json` and for CI. */
-export function gapSummary(reports: GapReport[]): {
+export function gapSummary(
+  reports: GapReport[],
+  knowledge?: AppKnowledge,
+): {
   ok: boolean;
   grounded: number;
   gaps: number;
   byKind: Record<string, number>;
+  needsReview: Array<{ id: string; credentials?: string; review: string }>;
   features: Array<{ featureId: string; gaps: KbGap[] }>;
 } {
   const byKind: Record<string, number> = {};
@@ -105,6 +143,11 @@ export function gapSummary(reports: GapReport[]): {
     grounded: reports.reduce((n, r) => n + r.grounded.length, 0),
     gaps,
     byKind,
+    needsReview: (knowledge === undefined ? [] : pendingReviews(knowledge)).map((role) => ({
+      id: role.id,
+      ...(role.credentials !== undefined ? { credentials: role.credentials } : {}),
+      review: role.review!,
+    })),
     features: reports
       .filter((r) => r.gaps.length > 0)
       .map((r) => ({ featureId: r.featureId, gaps: r.gaps })),
