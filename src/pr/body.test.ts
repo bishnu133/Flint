@@ -97,8 +97,9 @@ describe('buildPrContent', () => {
         tests: [
           {
             title: 'shows the right total',
+            file: 'e2e/cart.spec.ts',
             status: 'failed',
-            failureClass: 'assertion',
+            failureClass: 'assertion-mismatch',
             possibleAppDefect: true,
             repairAttempts: 2,
           },

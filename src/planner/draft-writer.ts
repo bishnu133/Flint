@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
-import type { DraftEntity, DraftFeature, DraftedKb } from '../schemas/draft.js';
+import type { DraftEntity, DraftFeature, DraftRole, DraftedKb } from '../schemas/draft.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { Resolution } from './draft.js';
 import type { NeedCheck } from './draft-check.js';
@@ -202,6 +202,36 @@ function renderEntity(entity: DraftEntity, resolutions: Resolution[], source: st
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
+/**
+ * The text to match a role against the suite's credential getters.
+ *
+ * `credentialsHint` is supposed to be the role as the document names it —
+ * "Vendor Admins". A live run produced a seventeen-word clause instead ("BAP
+ * user with Vendor Admin role, not assigned to HPB Activity Vendor User
+ * Managers or Partner PA Activity Vendor User Managers"), and `near` compares
+ * *names*: handed a sentence it matched on incidental words and offered five
+ * getters, one of them about reward partners. Five candidates where two are
+ * plausible is not a shortlist, it is noise wearing a shortlist's clothes.
+ *
+ * So: use the hint when it reads like a name, otherwise fall back to the
+ * shortest thing that does. An alias is written for exactly this purpose, and
+ * the camelCase id — `vendorAdmin` — tokenises into the two words that matter.
+ */
+export function credentialQuery(role: DraftRole): string {
+  const candidates = [role.credentialsHint, ...role.aliases, role.id].filter(
+    (value): value is string => value !== undefined && value.trim() !== '',
+  );
+  const nameLike = candidates.filter((c) => wordCount(c) <= MAX_ROLE_HINT_WORDS);
+  return nameLike[0] ?? candidates[candidates.length - 1] ?? role.id;
+}
+
+/** Where a role description stops being a name and starts being a sentence. */
+const MAX_ROLE_HINT_WORDS = 6;
+
+function wordCount(value: string): number {
+  return value.split(/[^A-Za-z0-9]+/).filter((word) => word.length > 1).length;
+}
+
 function renderRoles(draft: DraftedKb, manifest: SuiteManifest, source: string): string {
   const getters = manifest.credentials.map((c) => c.getter);
   const notes: string[] = [];
@@ -210,7 +240,7 @@ function renderRoles(draft: DraftedKb, manifest: SuiteManifest, source: string):
     const entry: Record<string, unknown> = { id: role.id };
     if (role.description !== undefined) entry['description'] = role.description;
 
-    const hint = role.credentialsHint ?? role.id;
+    const hint = credentialQuery(role);
     const exact = getters.find((g) => g === hint);
     const candidates = exact !== undefined ? [exact] : near(hint, getters);
 
@@ -258,12 +288,38 @@ function renderRoles(draft: DraftedKb, manifest: SuiteManifest, source: string):
   return `${lines.join('\n').trimEnd()}\n`;
 }
 
+/**
+ * Specs already on disk that were drafted from this same document.
+ *
+ * The never-overwrite rule compares *paths*, and a model asked twice about one
+ * card does not produce the same id twice: a live run left
+ * `vendor-admin-facilitator-view`, `vendor-admin-facilitators-view` and
+ * `vendor-admin-view-facilitators` side by side, one card reported as three
+ * features with three sets of gaps. No file was damaged and nothing failed —
+ * the gap report simply tripled, and the operator had no way to tell which
+ * entries were live.
+ *
+ * The generated comment names the source, so the earlier attempts can be found
+ * exactly rather than guessed at from similar-looking ids.
+ */
+export function priorDraftsFrom(projectRoot: string, kbDir: string, source: string): string[] {
+  const dir = resolve(projectRoot, kbDir, 'features');
+  if (!existsSync(dir)) return [];
+  const marker = `Drafted by \`flint draft\` from ${source}`;
+  return readdirSync(dir)
+    .filter((name) => name.endsWith('.md') && !name.endsWith('.draft.md'))
+    .filter((name) => readFileSync(join(dir, name), 'utf8').includes(marker))
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => join(kbDir, 'features', name));
+}
+
 /** What the CLI prints: the decisions a human is being asked to check. */
 export function formatDraftSummary(
   draft: DraftedKb,
   resolutions: Resolution[],
   files: DraftFile[],
   needs: NeedCheck[],
+  priorDrafts: string[] = [],
 ): string {
   const lines: string[] = [];
 
@@ -324,6 +380,18 @@ export function formatDraftSummary(
   if (draft.openQuestions.length > 0) {
     lines.push('', 'Open questions:');
     for (const question of draft.openQuestions) lines.push(`  ? ${question}`);
+  }
+
+  if (priorDrafts.length > 0) {
+    lines.push(
+      '',
+      'This document was already drafted into:',
+      ...priorDrafts.map((path) => `  ${path}`),
+      '',
+      '  Those are left alone, and `flint kb` reads them as live specs — so one',
+      '  card will be reported as several features until you delete the ones you',
+      '  do not want.',
+    );
   }
 
   lines.push(

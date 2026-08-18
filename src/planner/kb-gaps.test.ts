@@ -25,6 +25,7 @@ const MANIFEST: SuiteManifest = {
   version: 1,
   generatedAt: '2026-08-17T00:00:00.000Z',
   suiteDir: 'e2e',
+  roots: [],
   flows: [
     {
       id: 'badge-creation.createBadge',

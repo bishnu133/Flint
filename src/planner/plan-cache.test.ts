@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { FeatureSpec } from '../schemas/kb.js';
+import type { FeatureSpec } from './feature-spec.js';
 import type { ScreenModel } from '../schemas/screen-model.js';
 import type { TestPlan } from '../schemas/test-plan.js';
 import type { LLMProvider } from '../llm/types.js';
@@ -26,7 +26,7 @@ let root: string;
 const MODEL: ScreenModel = {
   version: '2026-08-14T00:00:00.000Z',
   baseUrl: 'https://www.saucedemo.com',
-  generatedAt: '2026-08-14T00:00:00.000Z',
+  capturedAt: '2026-08-14T00:00:00.000Z',
   pages: [
     {
       id: 'login',

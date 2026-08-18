@@ -35,7 +35,16 @@ export function discoverFeatureFiles(projectRoot: string, kbDir: string): string
   return (
     readdirSync(dir)
       // `_`-prefixed files are documentation, matching the flow-script convention.
-      .filter((name) => name.endsWith('.md') && !name.startsWith('_'))
+      //
+      // `.draft.md` is skipped for a sharper reason. `flint draft` writes one
+      // when the spec it wants to create already exists, so a human can diff the
+      // two — but both files carry the *same* `id`, and read as live specs they
+      // become one feature reported twice, with different `dataNeeds` under the
+      // same heading. A live run showed exactly that: one card, one id, two
+      // contradictory entries in the gap report. A draft awaiting review is not
+      // a spec, and treating it as one corrupts the report it was written to
+      // inform.
+      .filter((name) => name.endsWith('.md') && !name.startsWith('_') && !name.endsWith('.draft.md'))
       .sort((a, b) => a.localeCompare(b))
       .map((name) => join(dir, name))
   );

@@ -175,10 +175,17 @@ written out as a TODO nobody can close.
 
 # Roles
 
-If the document names who performs the action, propose a role. `credentialsHint`
-is the role as the document describes it; Flint matches it against the suite's
-credential getters. Where two getters could plausibly fit, say so in
-`openQuestions` rather than choosing.
+If the document names who performs the action, propose a role.
+
+`credentialsHint` is the role's **name**, two to four words — "Vendor Admin",
+"BAP customer care". Flint matches it against the suite's credential getters by
+comparing words, so a sentence does not work: "BAP user with Vendor Admin role,
+not assigned to HPB Activity Vendor User Managers" shares a word with half the
+getters in the suite and produces five candidates where two are plausible. The
+qualifications belong in `description`, which is prose and is not matched.
+
+Where two getters could plausibly fit, say so in `openQuestions` rather than
+choosing.
 
 `aliases` carries the same weight here as it does for entities, and for the same
 reason: a role is matched against a `dataNeeds` sentence by name. `id` is

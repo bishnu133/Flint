@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { FakeProvider } from '../llm/fake.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
@@ -11,7 +11,14 @@ import { documentWarning, draftKnowledgeBase, hintCandidates, resolveSetup } fro
 import { checkDraftNeeds } from './draft-check.js';
 import { EMPTY_KNOWLEDGE } from '../schemas/kb-app.js';
 import { loadAndRender } from '../generator/template-loader.js';
-import { formatDraftSummary, renderDraft, writeDraft } from './draft-writer.js';
+import {
+  credentialQuery,
+  formatDraftSummary,
+  priorDraftsFrom,
+  renderDraft,
+  writeDraft,
+} from './draft-writer.js';
+import { discoverFeatureFiles } from './feature-spec.js';
 import { readAppKnowledge, splitFrontmatter } from './kb-app.js';
 
 /**
@@ -27,6 +34,7 @@ const MANIFEST: SuiteManifest = {
   version: 1,
   generatedAt: '2026-08-17T00:00:00.000Z',
   suiteDir: 'e2e',
+  roots: [],
   flows: [
     {
       id: 'badge-creation.createBadge',
@@ -679,5 +687,86 @@ describe('candidates for a setup hint', () => {
         [],
       ),
     ).toEqual([]);
+  });
+});
+
+describe('a draft awaiting review is not a live spec', () => {
+  /**
+   * `flint draft` writes a `.draft.md` when the spec already exists, so a human
+   * can diff. Both files carry the same `id` — read as live specs they became
+   * one feature reported twice under the same heading with different
+   * `dataNeeds`, which is worse than either version alone.
+   */
+  it('is skipped by the spec reader', () => {
+    const dir = join(root, 'kb', 'features');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'a.md'), '---\nid: a\ntitle: A\n---\n', 'utf8');
+    writeFileSync(join(dir, 'a.draft.md'), '---\nid: a\ntitle: A again\n---\n', 'utf8');
+    expect(discoverFeatureFiles(root, 'kb').map((p) => basename(p))).toEqual(['a.md']);
+  });
+});
+
+describe('the same card drafted twice', () => {
+  // A live run left vendor-admin-facilitator-view, vendor-admin-facilitators-view
+  // and vendor-admin-view-facilitators side by side: one card, three features,
+  // three sets of gaps. Nothing failed and no file was damaged — the report just
+  // tripled, with no way to tell which entries were live.
+  const seed = (name: string, source: string) => {
+    const dir = join(root, 'kb', 'features');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, name),
+      `---\nid: x\n---\n\n<!-- Drafted by \`flint draft\` from ${source}. Review before use. -->\n`,
+      'utf8',
+    );
+  };
+
+  it('finds the earlier attempts by the document they name', () => {
+    seed('first-try.md', 'HPBPPH-17236.md');
+    seed('other-card.md', 'HPBPPH-17169.md');
+    expect(priorDraftsFrom(root, 'kb', 'HPBPPH-17236.md')).toEqual([
+      join('kb', 'features', 'first-try.md'),
+    ]);
+  });
+
+  it('says so in the summary, naming the files', () => {
+    const out = formatDraftSummary(DRAFT, [], [], [], [join('kb', 'features', 'first-try.md')]);
+    expect(out).toContain('already drafted into');
+    expect(out).toContain('first-try.md');
+  });
+
+  it('stays quiet on a first draft', () => {
+    expect(formatDraftSummary(DRAFT, [], [], [], [])).not.toContain('already drafted');
+  });
+});
+
+describe('matching a role to a credential getter', () => {
+  const role = (over: Partial<Parameters<typeof credentialQuery>[0]>) =>
+    credentialQuery({ id: 'vendorAdmin', aliases: [], ...over });
+
+  it('uses the hint when it reads like a name', () => {
+    expect(role({ credentialsHint: 'Vendor Admin' })).toBe('Vendor Admin');
+  });
+
+  it('falls back to an alias when the hint is a sentence', () => {
+    // A live run wrote a seventeen-word clause and `near` offered five getters,
+    // one of them about reward partners.
+    expect(
+      role({
+        credentialsHint:
+          'BAP user with Vendor Admin role, not assigned to HPB Activity Vendor User Managers or Partner PA Activity Vendor User Managers',
+        aliases: ['Vendor Admin'],
+      }),
+    ).toBe('Vendor Admin');
+  });
+
+  it('falls back to the id when there is no short alias either', () => {
+    expect(role({ credentialsHint: 'a BAP user who holds the Vendor Admin role in this portal' })).toBe(
+      'vendorAdmin',
+    );
+  });
+
+  it('uses the id when no hint was given at all', () => {
+    expect(role({})).toBe('vendorAdmin');
   });
 });

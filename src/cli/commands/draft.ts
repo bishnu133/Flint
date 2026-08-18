@@ -9,7 +9,12 @@ import { scanManifest } from '../../indexer/manifest-scan.js';
 import { tryReadManifest } from '../../indexer/manifest-store.js';
 import { readAppKnowledge } from '../../planner/kb-app.js';
 import { documentWarning, draftKnowledgeBase } from '../../planner/draft.js';
-import { formatDraftSummary, renderDraft, writeDraft } from '../../planner/draft-writer.js';
+import {
+  formatDraftSummary,
+  priorDraftsFrom,
+  renderDraft,
+  writeDraft,
+} from '../../planner/draft-writer.js';
 import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { EMPTY_KNOWLEDGE } from '../../schemas/kb-app.js';
 import type { ScreenModel } from '../../schemas/screen-model.js';
@@ -115,6 +120,10 @@ async function runDraft(documentPath: string, opts: DraftOptions): Promise<void>
     return;
   }
 
+  // Read before writing: after `writeDraft` this run's own output would be
+  // indistinguishable from an earlier attempt at the same card.
+  const priorDrafts = priorDraftsFrom(projectRoot, config.kbDir, basename(absolute));
+
   const files = renderDraft({
     draft: result.draft,
     resolutions: result.resolutions,
@@ -126,7 +135,9 @@ async function runDraft(documentPath: string, opts: DraftOptions): Promise<void>
 
   if (!opts.dryRun) writeDraft(projectRoot, files);
 
-  console.log(formatDraftSummary(result.draft, result.resolutions, files, result.needs));
+  console.log(
+    formatDraftSummary(result.draft, result.resolutions, files, result.needs, priorDrafts),
+  );
   if (opts.dryRun) {
     console.log(
       `\n(--dry-run: nothing written. Drop it to write into ${relative(process.cwd(), projectRoot) || '.'}.)`,

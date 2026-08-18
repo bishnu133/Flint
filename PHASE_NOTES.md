@@ -3502,3 +3502,51 @@ Tests: 1149 across 77 files (+7), including a read of a manifest written
 before `roots` existed — every project with one on disk has that shape, and it
 has to read as "no roots recorded" rather than failing on the first command
 after an upgrade.
+
+### B2.5.9 — 6 grounded, and three defects the good run exposed (2026-08-18)
+
+First run with everything present: Screen Model, 25 credential getters, 24
+repositories. **6 grounded, 3 gaps**, roles resolving to real getters
+(`role.vendorAdmin via getBAPActivityVendorAdminUserCredentials`), and the
+`review:` marker doing its job. The `vendor-facilitator` gap is correct and is
+the answer, not a failure: no repository method creates facilitators, so the
+state is honestly unreachable and the report says which specs depend on it.
+
+Three defects, two of them mine.
+
+**1. A `.draft.md` was being read as a live spec.** It carries the same `id` as
+the file it sits beside, so `flint kb` reported one feature twice under the same
+heading with different `dataNeeds`. The divert exists so a human can diff; a
+draft awaiting review is not a spec, and `discoverFeatureFiles` now skips it
+alongside the `_`-prefixed convention.
+
+**2. One card, three specs.** `vendor-admin-facilitator-view`,
+`vendor-admin-facilitators-view` and `vendor-admin-view-facilitators` sat side
+by side, because the never-overwrite rule compares paths and a model asked twice
+about one card does not produce the same id twice. Nothing failed and no file
+was damaged — the gap report simply tripled. `priorDraftsFrom()` finds earlier
+attempts by the `Drafted by flint draft from <source>` comment and names them in
+the summary, saying plainly that `flint kb` will read them all.
+
+**3. The prose-hint bug again, at the call site I did not fix.** B2.5.4 stopped
+`near` being handed a sentence for setup hints. `renderRoles` was still doing
+it, and a seventeen-word `credentialsHint` produced five candidates including
+`getBAPRewardPartnerManagerCredentials`. `credentialQuery()` now uses the hint
+only when it reads like a name and otherwise falls back to the shortest alias,
+then the camelCase id — which tokenises to exactly the words that matter. The
+prompt says two to four words and puts the qualifications in `description`,
+which is not matched. **Fixing a bug at one call site is not fixing the bug.**
+
+**And a process failure worth recording.** `pnpm typecheck` has existed since
+Phase 0 and I had not been running it — `pnpm build` uses `tsconfig.build.json`,
+which excludes tests, so `c6dc073` was pushed with two type errors in test
+fixtures after I called it clean. Three older errors were sitting there too
+(`plan-cache.test.ts` importing `FeatureSpec` from the wrong module and stamping
+`generatedAt` on a `ScreenModel`; `pr/body.test.ts` using a `failureClass` value
+that is not in the enum). All five fixed; `tsc -p tsconfig.json --noEmit` is
+clean. Verification from here is build + **typecheck** + lint + test, not the
+first, third and fourth.
+
+Cost note: 19,919 in / 5,056 out, up from 12,847 / 4,054. Expected — the suite
+listing now carries 25 credentials and 24 repositories with their methods, and
+the existing-KB section is no longer empty. Worth watching, not worth acting on.
