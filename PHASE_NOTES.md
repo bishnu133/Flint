@@ -3747,3 +3747,64 @@ boundaries, and the fix is an `aria-label` or a `data-testid` on those controls
 — cheap, and good practice regardless.
 
 Tests: 48 across the bubblegum files. Build, typecheck, lint clean.
+
+### B3.4 — The emitter, written against real files (2026-08-18)
+
+The operator sent `Validate-Activity.test.mts`, `login.flow.ts`,
+`event-creation.flow.ts` and `activity.data.ts`. Four assumptions died on
+contact, and every one of them would have produced a file that compiles and
+does not work.
+
+**A test is not a Playwright spec.** It is a `tsx` script: `npx tsx
+tests/X.test.mts`, a `main()`, `try/catch/finally`, and `runTest(ctx, id, title,
+fn)` from `../helpers/runner`. No `test()`, no `describe`, and — the one that
+mattered — **no `test.fixme()`**. The three-outcome emit precedence had been
+designed around it. A non-live case is now written as a real flow function with
+its `runTest` call commented out under a banner giving the reason: the work
+survives as code that compiles, and nothing runs by accident.
+
+**Imports are dynamic on purpose.** `dotenv.config()` must run before any module
+that reads `process.env` at load time, so the engine helper is pulled in with
+`await import(...)`. Copying that ordering is not stylistic — a static import
+would break the run in a way that reads as a configuration problem.
+
+**`act(engine, phrase)`, not `act(engine, page, phrase)`.** A plausible
+signature and the wrong one.
+
+**The phrase register was richer than the manifest showed.** `Click the Next
+button`, `Select "X" from Programme dropdown`, `Select "X" radio button in event
+mode section`, `verify(engine, 'the "Create an activity" button is present')`.
+So clicks now carry the control noun, and assertions read `the "<name>"
+<noun> is present` rather than `<name> is visible`. `roleNoun` adds a word only
+where the suite's own flows add one — `Enter "..." into Postal Code`, never
+`into the Postal Code field`.
+
+That change broke reuse matching: the emitter writes `Click the Sign In button`
+where `login.flow.ts` recorded `Click Sign In`, and compared literally they do
+not match, so the login would be re-driven instead of reused. `phraseMatches`
+now normalises articles and control nouns **for comparison only** — emission
+stays canonical, and the normalisation never reaches a generated file.
+
+Also confirmed, in their own code: `Enter "06:00" into Activity Start time in
+dialog`, and `Click the Yes, approve button in the confirmation dialog`. The
+`inDialog` decision was right, and the rejected `section` idea is visible there
+too — `radio button in event mode section`. Worth revisiting after B3 ships, but
+only with real evidence rather than a heading guess.
+
+**`flint bubblegum [feature]` exists, and it should not.** It belongs inside
+`flint generate` selected by `config.dialect`. `generate.ts` is a completed
+Phase 4 file, and CLAUDE.md rule 2 says a change to one stops and asks. It is
+also not a one-line branch: the Phase 4 `Dialect` interface is page objects and
+verified selectors all the way down, so folding this in means changing that
+interface. **Recorded here for approval rather than done quietly.** Until then
+the seam is a separate command.
+
+Generated files carry the same managed marker as every other Flint output, and
+an edited one is left alone with the new version written beside it — a
+Bubblegum flow is prose somebody will have tuned by hand.
+
+Tests: 70 across the four bubblegum files. Build, typecheck, lint clean.
+
+Still missing, and the reason the command says so on every run: `preflight()`.
+A phrase with a typo is valid TypeScript, so nothing between generation and a
+failing CI run checks the sentences at all.

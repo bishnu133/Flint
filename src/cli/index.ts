@@ -13,6 +13,7 @@ import { registerKb } from './commands/kb.js';
 import { registerDraft } from './commands/draft.js';
 import { registerPlan } from './commands/plan.js';
 import { registerGenerate } from './commands/generate.js';
+import { registerBubblegum } from './commands/bubblegum.js';
 import { registerVerify } from './commands/verify.js';
 import { registerCi } from './commands/ci.js';
 import { registerBench } from './commands/bench.js';
@@ -51,6 +52,7 @@ export function buildProgram(): Command {
 
   // Implemented in Phase 4.
   registerGenerate(program);
+  registerBubblegum(program);
 
   // Implemented in Phase 5.
   registerVerify(program);

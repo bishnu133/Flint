@@ -39,8 +39,16 @@ import type { PlanStep } from '../../schemas/test-plan.js';
  */
 
 export type Phrase =
-  /** `await act(engine, page, text)` — drives the page. */
-  | { kind: 'act'; text: string; elementId: string }
+  /** `await act(engine, text)` — drives the page. */
+  | {
+      kind: 'act';
+      text: string;
+      elementId: string;
+      /** The literal typed or chosen, lifted into the data file by `suite.ts`. */
+      value?: string;
+      /** What the sentence calls the element, for naming that data key. */
+      label?: string;
+    }
   /** `await verify(engine, page, text)` — asserts in natural language. */
   | { kind: 'verify'; text: string; elementId?: string }
   /** `await page.goto(url)` — exact, no resolver involved. */
@@ -112,29 +120,80 @@ export function phraseFor(input: PhraseInput): Phrase {
 
   const where = element.inDialog === true ? ' in dialog' : '';
 
+  const noun = roleNoun(element.role);
+
   switch (step.action) {
     case 'click':
-      return { kind: 'act', text: `Click ${name}${where}`, elementId: element.id };
+      return {
+        kind: 'act',
+        text: `Click the ${name}${noun === undefined ? '' : ` ${noun}`}${where}`,
+        elementId: element.id,
+        label: name,
+      };
     case 'fill':
       return {
         kind: 'act',
         text: `Enter "${step.value ?? ''}" into ${name}${where}`,
         elementId: element.id,
+        ...(step.value !== undefined ? { value: step.value } : {}),
+        label: name,
       };
     case 'select':
       return {
         kind: 'act',
-        text: `Select "${step.value ?? ''}" from ${name}${where}`,
+        text: `Select "${step.value ?? ''}" from ${name}${noun === undefined ? '' : ` ${noun}`}${where}`,
         elementId: element.id,
+        ...(step.value !== undefined ? { value: step.value } : {}),
+        label: name,
       };
     case 'assert':
-      return assertPhrase(step, name, where, element.id);
+      return assertPhrase(step, name, noun, where, element.id);
   }
 }
 
+/**
+ * What this dialect calls a control, taken from the target suite's own phrases.
+ *
+ * `Click the Next button`, `Select "..." from Programme dropdown`, `Enter "..."
+ * into Postal Code`. The noun is part of how these sentences read and part of
+ * what the resolver matches on, so it is not decoration — but it is only added
+ * where the suite's own flows add it, and a role with no established word gets
+ * nothing rather than a guess.
+ */
+export function roleNoun(role: string): string | undefined {
+  switch (role) {
+    case 'button':
+      return 'button';
+    case 'link':
+      return 'link';
+    case 'combobox':
+    case 'listbox':
+      return 'dropdown';
+    case 'checkbox':
+      return 'checkbox';
+    case 'radio':
+      return 'radio button';
+    case 'tab':
+      return 'tab';
+    case 'menuitem':
+      return 'menu item';
+    default:
+      // textbox, heading, alert and the rest are named without a noun in the
+      // suite's own flows: `Enter "..." into Postal Code`, not `into the Postal
+      // Code field`.
+      return undefined;
+  }
+}
+
+/**
+ * An assertion, in the register the suite's own `verify` calls use:
+ * `the "Create an activity" button is present`, `the page header is "General
+ * Information"`.
+ */
 function assertPhrase(
   step: PlanStep,
   name: string,
+  noun: string | undefined,
   where: string,
   elementId: string,
 ): Phrase {
@@ -143,23 +202,24 @@ function assertPhrase(
     return { kind: 'ungrounded', reason: 'an assert step with no assertion' };
   }
   const expected = String(assertion.expected);
+  const subject = `the "${name}"${noun === undefined ? '' : ` ${noun}`}`;
 
   switch (assertion.kind) {
     case 'visible':
-      return { kind: 'verify', text: `${name} is visible${where}`, elementId };
+      return { kind: 'verify', text: `${subject} is present${where}`, elementId };
     case 'hidden':
-      // "is not visible" rather than "is hidden": a control removed from the DOM
-      // and one styled out both satisfy the requirement, and the second wording
-      // reads as a claim about CSS.
-      return { kind: 'verify', text: `${name} is not visible${where}`, elementId };
+      // "is not present" rather than "is hidden". The requirement here — the
+      // live one — is that the control is *absent*, and a sentence about being
+      // hidden is a claim about CSS that a removed element would fail.
+      return { kind: 'verify', text: `${subject} is not present${where}`, elementId };
     case 'text':
-      return { kind: 'verify', text: `${name} shows "${expected}"${where}`, elementId };
+      return { kind: 'verify', text: `${subject} is "${expected}"${where}`, elementId };
     case 'value':
-      return { kind: 'verify', text: `${name} contains "${expected}"${where}`, elementId };
+      return { kind: 'verify', text: `${subject} contains "${expected}"${where}`, elementId };
     case 'count':
-      return { kind: 'verify', text: `There are ${expected} ${name}${where}`, elementId };
+      return { kind: 'verify', text: `there are ${expected} "${name}"${where}`, elementId };
     case 'toast':
-      return { kind: 'verify', text: `A message saying "${expected}" is visible`, elementId };
+      return { kind: 'verify', text: `a message saying "${expected}" is present`, elementId };
     case 'url':
       // Handled before this function; kept exhaustive so a new assertion kind
       // fails to compile rather than falling through to a wrong sentence.

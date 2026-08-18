@@ -75,11 +75,32 @@ export function matchFlowPrefix(phrases: Phrase[], manifest: SuiteManifest): Flo
  */
 export function phraseMatches(recorded: string, generated: string | undefined): boolean {
   if (generated === undefined) return false;
-  const pattern = recorded
+  const pattern = normalise(recorded)
     .split(/\$\{[^}]*\}/)
     .map(escapeRegExp)
     .join('[\\s\\S]*');
-  return new RegExp(`^${pattern}$`).test(generated);
+  return new RegExp(`^${pattern}$`).test(normalise(generated));
+}
+
+/**
+ * The parts of a phrase that carry meaning, for comparison only.
+ *
+ * A person wrote `Click Sign In`; the emitter writes `Click the Sign In button`,
+ * because that is the dominant form in the same suite. Both address the same
+ * control and both work, but compared literally they do not match, and the login
+ * would be re-driven instead of reused.
+ *
+ * So articles and the control nouns are dropped before comparing. Emission stays
+ * canonical — this normalisation never reaches a generated file, it only decides
+ * whether two sentences are about the same thing.
+ */
+function normalise(phrase: string): string {
+  return phrase
+    .toLowerCase()
+    .replace(/\b(the|a|an|on)\b/g, ' ')
+    .replace(/\b(button|link|dropdown|menu item|tab|field|icon)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** The sentence a phrase puts on the page, or nothing for non-spoken steps. */

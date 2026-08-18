@@ -31,7 +31,12 @@ describe('driving the page', () => {
   // out of the manifest. Inventing a second house style would leave two
   // dialects side by side in one repository forever.
   const cases: Array<[string, PlanStep, Partial<Element>, string]> = [
-    ['click reads as the suite writes it', step({ action: 'click' }), {}, 'Click Sign In'],
+    [
+      'click names the control the way the suite does',
+      step({ action: 'click' }),
+      {},
+      'Click the Sign In button',
+    ],
     [
       'fill quotes the value and names the field',
       step({ action: 'fill', value: 'standard_user', elementRef: 'el-user' }),
@@ -42,7 +47,7 @@ describe('driving the page', () => {
       'select says from, not into',
       step({ action: 'select', value: 'Price (low to high)', elementRef: 'el-sort' }),
       { id: 'el-sort', role: 'combobox', name: 'Sort by' },
-      'Select "Price (low to high)" from Sort by',
+      'Select "Price (low to high)" from Sort by dropdown',
     ],
   ];
 
@@ -57,15 +62,15 @@ describe('driving the page', () => {
 
 describe('asserting', () => {
   const cases: Array<[string, PlanStep['assertion'], string]> = [
-    ['visible', { kind: 'visible', expected: true }, 'Sign In is visible'],
+    ['visible', { kind: 'visible', expected: true }, 'the "Sign In" button is present'],
     // "is not visible" rather than "is hidden": removed from the DOM and styled
     // out both satisfy the requirement; the other wording claims something
     // about CSS.
-    ['hidden', { kind: 'hidden', expected: true }, 'Sign In is not visible'],
-    ['text', { kind: 'text', expected: 'Swag Labs' }, 'Sign In shows "Swag Labs"'],
-    ['value', { kind: 'value', expected: 'abc' }, 'Sign In contains "abc"'],
-    ['count', { kind: 'count', expected: 6 }, 'There are 6 Sign In'],
-    ['toast', { kind: 'toast', expected: 'Saved' }, 'A message saying "Saved" is visible'],
+    ['hidden', { kind: 'hidden', expected: true }, 'the "Sign In" button is not present'],
+    ['text', { kind: 'text', expected: 'Swag Labs' }, 'the "Sign In" button is "Swag Labs"'],
+    ['value', { kind: 'value', expected: 'abc' }, 'the "Sign In" button contains "abc"'],
+    ['count', { kind: 'count', expected: 6 }, 'there are 6 "Sign In"'],
+    ['toast', { kind: 'toast', expected: 'Saved' }, 'a message saying "Saved" is present'],
   ];
 
   for (const [name, assertion, expected] of cases) {
@@ -108,12 +113,12 @@ describe('a dialog is the one thing a sentence has to say', () => {
       step: step({ action: 'click' }),
       element: element({ name: 'Save', inDialog: true }),
     });
-    expect(text(phrase)).toBe('Click Save in dialog');
+    expect(text(phrase)).toBe('Click the Save button in dialog');
   });
 
   it('says nothing extra for an element on the page', () => {
     const phrase = phraseFor({ step: step({ action: 'click' }), element: element({ name: 'Save' }) });
-    expect(text(phrase)).toBe('Click Save');
+    expect(text(phrase)).toBe('Click the Save button');
   });
 
   it('qualifies an assertion too', () => {
@@ -121,7 +126,7 @@ describe('a dialog is the one thing a sentence has to say', () => {
       step: step({ action: 'assert', assertion: { kind: 'visible', expected: true } }),
       element: element({ name: 'Save', inDialog: true }),
     });
-    expect(text(phrase)).toBe('Save is visible in dialog');
+    expect(text(phrase)).toBe('the "Save" button is present in dialog');
   });
 });
 

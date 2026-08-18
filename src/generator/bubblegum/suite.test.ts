@@ -155,7 +155,7 @@ describe('matchFlowPrefix', () => {
         'Enter "alice" into Username',
         'Enter "hunter2" into Password',
         'Click Sign In',
-        'Click Facilitators',
+        'Click the Facilitators button',
       ),
       MANIFEST,
     );
@@ -167,14 +167,14 @@ describe('matchFlowPrefix', () => {
     // Splicing a login out of the middle would leave the steps around it
     // depending on state the call no longer produces in that order.
     const match = matchFlowPrefix(
-      spoken('Click Facilitators', 'Enter "alice" into Username'),
+      spoken('Click the Facilitators button', 'Enter "alice" into Username'),
       MANIFEST,
     );
     expect(match).toBeUndefined();
   });
 
   it('reuses nothing when the opening differs', () => {
-    expect(matchFlowPrefix(spoken('Click Facilitators'), MANIFEST)).toBeUndefined();
+    expect(matchFlowPrefix(spoken('Click the Facilitators button'), MANIFEST)).toBeUndefined();
   });
 });
 
@@ -216,7 +216,7 @@ describe('buildSuite', () => {
     const suite = build([testCase()]);
     expect(suite.flows).toHaveLength(1);
     expect(suite.flows[0]!.steps.map((s) => ('text' in s ? s.text : s.kind))).toEqual([
-      'Click Facilitators',
+      'Click the Facilitators button',
     ]);
   });
 
@@ -238,7 +238,7 @@ describe('buildSuite', () => {
     ]);
     expect(suite.flows[0]!.steps).toHaveLength(1);
     expect(suite.tests[0]!.checks.map((c) => ('text' in c ? c.text : c.kind))).toEqual([
-      'Add a facilitator is not visible',
+      'the "Add a facilitator" button is not present',
     ]);
   });
 });
