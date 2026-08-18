@@ -3365,3 +3365,38 @@ nothing: a wrong guess and an unreviewed guess look identical to a checker, and
 refusing to run on that basis would train people to delete the line unread.
 
 Tests: 1137 across 76 files (+6).
+
+### B2.5.6 — `Element.inDialog`, approved (2026-08-18)
+
+The Bubblegum dialect writes a step as a sentence, not a selector. The open
+question was how Flint would say *which* Save button when a page has two.
+
+Answered by the operator, and the answer is narrower than the proposal: on an
+ordinary page no qualifier is needed — `act(page, 'click the Save button')` is
+the whole step. Only a dialog needs saying, because a dialog is when the same
+label genuinely exists twice.
+
+So `Element` gains **`inDialog?: boolean`** and nothing else. The `section`
+half of the proposal is rejected: a qualifier derived from the nearest heading
+is a guess about document structure, and inside a generated English sentence a
+guess reads exactly like a fact.
+
+Populated in the extractor's existing single `evaluate`, from
+`closest('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')`
+— `aria-modal` covers the div-with-a-role pattern most component libraries emit.
+Written as `true` or omitted, never `false`, so the model does not grow for the
+overwhelming majority of elements that are not in a dialog. It is deliberately
+*not* part of `elementId`'s basis: the id is derived from identifying facts, and
+folding in a state-dependent one would renumber elements between crawls.
+
+Why `provenance` could not answer it: `provenance.revealed` says an element
+appeared after a click, which is equally true of a dropdown item, and a dialog
+open on page load carries no provenance at all.
+
+This unblocks B3.
+
+Note on running the browser suite in a container: this environment ships
+Chromium build 1194 under `/opt/pw-browsers` while Playwright 1.62 asks for
+1234, so `src/explorer/*` fails on launch unless the expected paths are shimmed.
+Both new dialog tests were verified against a real browser that way, not
+asserted from a fake.

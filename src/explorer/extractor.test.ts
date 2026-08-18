@@ -106,6 +106,38 @@ describe('extractPage', () => {
     expect(result.elements.map((e) => e.tagName).sort()).toEqual(['a', 'button', 'h1', 'input']);
   });
 
+  it('records which elements sit inside a dialog', async () => {
+    // The Bubblegum dialect writes a step as a sentence. On an ordinary page
+    // "click the Save button" is enough; with a modal open there are two Save
+    // buttons and the sentence has to say "... in dialog", exactly as a person
+    // writing the step by hand would. Nothing else in the model carries this:
+    // `provenance.revealed` is equally true of a dropdown item.
+    await setContent(`
+      <button>Save</button>
+      <div role="dialog" aria-modal="true">
+        <h2>Confirm</h2>
+        <button>Save</button>
+      </div>
+    `);
+    const elements = (await extractPage(page)).elements;
+    const saves = elements.filter((e) => e.text === 'Save');
+    expect(saves).toHaveLength(2);
+    expect(saves.filter((e) => e.inDialog === true)).toHaveLength(1);
+    // Absent rather than false on the page-level one: the model stays the same
+    // size for the overwhelming majority of elements, which are not in dialogs.
+    expect(saves.find((e) => e.inDialog === undefined)).toBeDefined();
+    expect(elements.find((e) => e.tagName === 'h2')!.inDialog).toBe(true);
+  });
+
+  it('recognises a native <dialog> and a plain role, not just aria-modal', async () => {
+    await setContent(`
+      <dialog open><button>In native</button></dialog>
+      <div role="alertdialog"><button>In alert</button></div>
+    `);
+    const elements = (await extractPage(page)).elements.filter((e) => e.tagName === 'button');
+    expect(elements.every((e) => e.inDialog === true)).toBe(true);
+  });
+
   it('verifies uniqueness live — a unique testid is verified and unique', async () => {
     await setContent('<button data-testid="only">Go</button>');
     const el = (await extractPage(page)).elements[0]!;

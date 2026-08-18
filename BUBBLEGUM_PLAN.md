@@ -184,9 +184,19 @@ proven in production; this codifies it.
 
 ## Open decisions
 
-1. **`Element.section`** — Bubblegum disambiguates repeated labels in English
-   (`"… in the Billing section"`, `"… in dialog"`). Our Element schema has
-   neither. Schemas are LOCKED, so this needs explicit approval before B3.
+1. ~~**`Element.section`**~~ — **answered 2026-08-18.** A step on an ordinary
+   page needs no qualifier: `act(page, 'click the Save button')` is the whole
+   sentence. Only a dialog needs saying, because that is when the same label
+   exists twice. So `Element` gains `inDialog?: boolean` and nothing else;
+   `section` is rejected — a heading-derived qualifier is a guess about
+   document structure that would read as fact inside a generated sentence.
+
+   Populated in the extractor from
+   `closest('dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]')`,
+   and absent rather than `false` off a dialog, so the model does not grow for
+   the elements that are not in one. `provenance.revealed` does not answer this
+   question: it is equally true of a dropdown item, and a dialog open on page
+   load has no provenance at all.
 2. ~~**Seeding vs cleanup**~~ — **answered** by running against the real
    project. Of 215 repository methods, 14 create rows and 29 update them.
    Critically `UserRepository.updateGAQ` exists, which is the precondition

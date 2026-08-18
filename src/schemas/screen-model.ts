@@ -95,6 +95,25 @@ export const ElementSchema = z
     framePath: z.array(z.string()).optional(),
     /** How this element came to exist. Absent = present on page load. */
     provenance: ElementProvenanceSchema.optional(),
+    /**
+     * The element sits inside a dialog. Approved 2026-08-18.
+     *
+     * Needed by the Bubblegum dialect, where a step is a sentence rather than a
+     * selector. On an ordinary page `act(page, 'click the Save button')` is
+     * enough; the moment a modal is open there are two Save buttons and the
+     * sentence has to say `'... in dialog'`, exactly as a person writing the
+     * step by hand would. Nothing else in the model carries that fact:
+     * `provenance.revealed` says an element appeared after a click, which is
+     * equally true of a dropdown item, and a dialog open on page load has no
+     * provenance at all.
+     *
+     * Deliberately not `section`. The original proposal also recorded the
+     * nearest heading, so a repeated label could be qualified as "in the
+     * Billing section". That was rejected: the dialog case is the one that
+     * actually breaks, and a heading-derived qualifier is a guess about
+     * document structure that reads as fact in a generated sentence.
+     */
+    inDialog: z.boolean().optional(),
   })
   .strict();
 export type Element = z.infer<typeof ElementSchema>;

@@ -308,6 +308,7 @@ async function extractElement(
     ...(facts.elementFacts.text !== undefined ? { text: facts.elementFacts.text } : {}),
     ...(opts.framePath.length > 0 ? { framePath: opts.framePath } : {}),
     ...(opts.provenance !== undefined ? { provenance: opts.provenance } : {}),
+    ...(facts.inDialog ? { inDialog: true } : {}),
   };
 }
 
@@ -316,6 +317,8 @@ interface ReadFacts {
   role?: string;
   tagName: string;
   domId?: string;
+  /** Inside a dialog. Not part of `elementId` — it is a fact about state. */
+  inDialog: boolean;
 }
 
 /** Read every fact the ranker needs, in one evaluate to limit round-trips. */
@@ -365,7 +368,15 @@ async function readFacts(
         depth += 1;
       }
 
+      // Whether this sits inside a modal, read here because only the DOM knows.
+      // `aria-modal` covers the div-with-a-role pattern that most component
+      // libraries emit; `<dialog>` and `role="dialog"` cover the rest.
+      const dialogAncestor = el.closest(
+        'dialog, [role="dialog"], [role="alertdialog"], [aria-modal="true"]',
+      );
+
       return {
+        inDialog: dialogAncestor !== null,
         tagName: el.tagName.toLowerCase(),
         // `type` decides both the role and, for the button-shaped inputs, where
         // the accessible name comes from. Read the attribute rather than the
@@ -394,6 +405,7 @@ async function readFacts(
     tagName: raw.tagName,
     role,
     domId: raw.domId,
+    inDialog: raw.inDialog,
     elementFacts: {
       testId: raw.testId,
       role,
