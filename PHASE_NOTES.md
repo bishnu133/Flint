@@ -3263,3 +3263,68 @@ Three changes:
   reviewer needs was being computed and thrown away.
 
 Tests: 1118 across 76 files (+4).
+
+### B2.5.4 — The two halves were writing and reading in different registers (2026-08-18)
+
+Fourth run, this time on HPBPPH-17236 — a genuinely web-only BAP card ("allow
+Vendor Admins to view the Vendor Facilitator listing"). 18,532 in / 7,188 out,
+four files written, `unresolved: 3`.
+
+Then `flint kb` on the same directory: **0 grounded, 3 gaps.**
+
+Every gap was `unknown-state`, and every one of them was `flint draft`'s own
+output failing `flint draft`'s own output:
+
+| `dataNeeds` written by draft | `states` written by the same draft |
+|---|---|
+| "a BAP user with Vendor Admin role who is not assigned the HPB Activity Vendor User Manager role" | `h365-vendor-admin-without-manager` |
+| "…not assigned the Partner PA Activity User Manager role" | `partner-pa-vendor-admin-without-manager` |
+| "existing vendor facilitator records under at least one company, so the listing page has rows to display" | `listed-under-company` |
+
+`matchState` looks for the state's name *inside* the need sentence. None of
+these appear in theirs, so none can ever match. Neither half is wrong on its
+own — the prompt asks for needs "as a tester would say it out loud", and the
+state names are perfectly good filenames — and nothing anywhere said the two
+had to be written in the same words. B2 and B2.5 were built two commits apart
+and never had to agree.
+
+The scoring is the part worth remembering: a draft that is complete and correct
+in substance scores **zero**, and the only place that shows up is a second
+command the operator may not run.
+
+Four changes:
+
+- **`draft-check.ts` — the draft is checked against itself.** Every generated
+  `dataNeeds` entry goes through the *same* `matchRole`/`matchEntity`/`matchState`
+  the gap report uses, against the drafted KB plus whatever `kb/` already holds.
+  Deterministic, no model call. The summary now prints "Preconditions that will
+  not ground" with the states that were on offer, so a self-inconsistent draft
+  is visible at the moment it is written.
+- **The prompt says grounding is word matching** (v5), with the failing pair
+  above and its fix (`a vendor admin without manager access` ↔ `without-manager`)
+  written out. The rule that matters: the state name has to fit inside the
+  sentence, not the other way round.
+- **"Who is logged in is a role, not an entity."** Two of the three gaps were
+  logins modelled as an entity with states. `roles.md` was written and nothing
+  grounded through it; the states became TODOs nobody can close, because there
+  is no repository method for "be a Vendor Admin".
+- **No candidates for a hint that is a sentence.** `near` compares names — the
+  right noun with the wrong verb. Given "Log in as a user assigned the Vendor
+  Admin role…" it offered five repositories about dashboard goals, on the
+  strength of sharing the word "user". Over 8 words, `hintCandidates` now
+  returns nothing; silence is the more useful answer, and it stops the honest
+  suggestions beside it looking equally arbitrary.
+
+Also fixed in the prompt: `pages` is a URL fragment matched against explored
+screens, not a screen's display name. The run wrote
+`pages: - Facilitators tab / Facilitator listing page (h365-portal)`, which
+matches nothing and would point the planner at no page at all.
+
+Still open, and still blocking B3: the `Element.section` / `inDialog` schema
+decision. Bubblegum disambiguates repeated labels in English ("… in the GAQ
+requirement section", "… in dialog"), and `Element` carries neither field.
+Phase 0 schemas are LOCKED, so this needs explicit approval.
+
+Tests: 1131 across 76 files (+13). The 11 failing files in this container are
+all `src/explorer/*` and fail on Chromium launch — environmental, unrelated to
+this change.

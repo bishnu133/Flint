@@ -126,7 +126,7 @@ async function runDraft(documentPath: string, opts: DraftOptions): Promise<void>
 
   if (!opts.dryRun) writeDraft(projectRoot, files);
 
-  console.log(formatDraftSummary(result.draft, result.resolutions, files));
+  console.log(formatDraftSummary(result.draft, result.resolutions, files, result.needs));
   if (opts.dryRun) {
     console.log(
       `\n(--dry-run: nothing written. Drop it to write into ${relative(process.cwd(), projectRoot) || '.'}.)`,

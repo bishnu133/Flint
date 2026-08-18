@@ -7,7 +7,9 @@ import { FakeProvider } from '../llm/fake.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { DraftedKb } from '../schemas/draft.js';
 import { DraftedKbSchema } from '../schemas/draft.js';
-import { documentWarning, draftKnowledgeBase, resolveSetup } from './draft.js';
+import { documentWarning, draftKnowledgeBase, hintCandidates, resolveSetup } from './draft.js';
+import { checkDraftNeeds } from './draft-check.js';
+import { EMPTY_KNOWLEDGE } from '../schemas/kb-app.js';
 import { loadAndRender } from '../generator/template-loader.js';
 import { formatDraftSummary, renderDraft, writeDraft } from './draft-writer.js';
 import { readAppKnowledge, splitFrontmatter } from './kb-app.js';
@@ -312,7 +314,7 @@ describe('never overwriting a reviewed file', () => {
 
   it('says so in the summary', () => {
     const files = [{ path: 'kb/app/entities/gaq.draft.md', contents: '', diverted: true }];
-    expect(formatDraftSummary(DRAFT, [], files)).toContain('existing file kept');
+    expect(formatDraftSummary(DRAFT, [], files, [])).toContain('existing file kept');
   });
 });
 
@@ -343,7 +345,7 @@ describe('the drafted knowledge base is readable by the KB reader', () => {
 describe('formatDraftSummary', () => {
   it('leads with what the human must decide', async () => {
     const result = await draftIt();
-    const out = formatDraftSummary(result.draft, result.resolutions, []);
+    const out = formatDraftSummary(result.draft, result.resolutions, [], result.needs);
     expect(out).toContain('Out of scope for this suite');
     expect(out).toContain('mobile app');
     expect(out).toContain('Setup paths with no matching method');
@@ -469,6 +471,7 @@ describe('the summary shows what each feature claims to cover', () => {
       DRAFT,
       [],
       [{ path: 'kb/features/unfit-mvpa-column.md', contents: '', diverted: false }],
+      [],
     );
     expect(out).toContain('covers: AC1');
   });
@@ -479,6 +482,7 @@ describe('the summary shows what each feature claims to cover', () => {
       uncited,
       [],
       [{ path: 'kb/features/unfit-mvpa-column.md', contents: '', diverted: false }],
+      [],
     );
     expect(out).not.toContain('covers:');
   });
@@ -496,5 +500,151 @@ describe('the prompt resolves the two splitting rules against each other', () =>
 
   it('forbids a requirement going missing', () => {
     expect(text().replace(/\s+/g, ' ')).toContain('Nothing may disappear');
+  });
+});
+
+describe('a draft has to ground its own preconditions', () => {
+  /**
+   * The live case, verbatim. `flint draft` wrote four good-looking files from
+   * HPBPPH-17236 and `flint kb` scored them **0 grounded, 3 gaps** — because the
+   * need is a sentence and the state is a filename, and the gap check joins them
+   * by words. Neither half was wrong on its own, which is why nothing caught it.
+   */
+  const mismatched: DraftedKb = {
+    ...DRAFT,
+    features: [
+      {
+        ...DRAFT.features[0]!,
+        dataNeeds: [
+          'a BAP user with Vendor Admin role who is not assigned the HPB Activity Vendor User Manager role',
+        ],
+      },
+    ],
+    entities: [
+      {
+        entity: 'vendor-admin-role',
+        aliases: [],
+        states: [{ name: 'h365-vendor-admin-without-manager', setupHint: 'log in as one' }],
+      },
+    ],
+    roles: [],
+  };
+
+  it('reports a need whose state name does not read inside it', () => {
+    const [check] = checkDraftNeeds(mismatched);
+    expect(check!.status).toBe('no-state');
+    expect(check!.entity).toBe('vendor-admin-role');
+    expect(check!.known).toEqual(['h365-vendor-admin-without-manager']);
+  });
+
+  it('grounds the same need once the pair is written in the same words', () => {
+    const paired: DraftedKb = {
+      ...mismatched,
+      features: [
+        {
+          ...mismatched.features[0]!,
+          dataNeeds: ['a vendor admin without manager access'],
+        },
+      ],
+      entities: [
+        {
+          entity: 'vendor-admin',
+          aliases: [],
+          states: [{ name: 'without-manager', setupHint: 'log in as one' }],
+        },
+      ],
+    };
+    expect(checkDraftNeeds(paired).map((c) => c.status)).toEqual(['grounded']);
+  });
+
+  it('grounds a need through a role, the way the gap report does', () => {
+    // Roles are checked before entities: "a BAP user with the customer care
+    // role" is satisfied by a credential getter, not by seeded data.
+    expect(checkDraftNeeds(DRAFT).map((c) => c.status)).toEqual(['grounded']);
+  });
+
+  it('reports a need that matches nothing at all', () => {
+    const orphan: DraftedKb = { ...mismatched, entities: [], roles: [] };
+    const [check] = checkDraftNeeds(orphan);
+    expect(check!.status).toBe('no-entity');
+    expect(check!.known).toEqual([]);
+  });
+
+  it('counts a knowledge base that already exists', () => {
+    // A draft extends a KB rather than replacing it. Reporting a need as
+    // stranded when last month's entity file already grounds it would send a
+    // reviewer to write a file that is sitting there.
+    const checks = checkDraftNeeds(
+      { ...mismatched, entities: [], roles: [] },
+      {
+        ...EMPTY_KNOWLEDGE,
+        roles: [{ id: 'vendorAdmin', aliases: ['Vendor Admin role'] }],
+      },
+    );
+    expect(checks.map((c) => c.status)).toEqual(['grounded']);
+  });
+
+  it('says so in the summary, not two commands later', () => {
+    const out = formatDraftSummary(mismatched, [], [], checkDraftNeeds(mismatched));
+    expect(out).toContain('Preconditions that will not ground');
+    expect(out).toContain('h365-vendor-admin-without-manager');
+    expect(out).toContain('read inside');
+  });
+
+  it('stays quiet when every need grounds', () => {
+    expect(formatDraftSummary(DRAFT, [], [], checkDraftNeeds(DRAFT))).not.toContain(
+      'will not ground',
+    );
+  });
+});
+
+describe('the prompt asks for a need and a state written in the same words', () => {
+  const text = () =>
+    loadAndRender('draft-kb', { document: 'D', suite: 'S', screens: 'SC', existing: 'E' }).text;
+
+  it('explains that grounding is word matching', () => {
+    expect(text().replace(/\s+/g, ' ')).toContain('A need must name the thing that satisfies it');
+  });
+
+  it('sends a login to roles rather than to an entity with states', () => {
+    expect(text()).toContain('Who is logged in is a role, not an entity');
+  });
+
+  it('says a role alias is what matches, because the id never reads as prose', () => {
+    expect(text()).toContain('camelCase');
+  });
+
+  it('says pages are url fragments, not screen names', () => {
+    // A live run wrote `pages: - Facilitators tab / Facilitator listing page`,
+    // which matches no screen and sends the planner nowhere useful.
+    expect(text().replace(/\s+/g, ' ')).toContain('holds **URL fragments**');
+  });
+});
+
+describe('candidates for a setup hint', () => {
+  const methods = [
+    'ActivityDashboardGoalRepository.deleteGoalsForUser',
+    'ActivityDashboardGoalRepository.updateBaselineAcknowledgementForUser',
+    'BadgeRepository.cleanupBadgeTestData',
+    'UserRepository.updateGAQ',
+  ];
+
+  it('offers a near miss when the hint is short enough to be a name', () => {
+    expect(hintCandidates('call UserRepository.setGAQStatus', methods, [])).toContain(
+      'UserRepository.updateGAQ',
+    );
+  });
+
+  it('offers nothing when the hint is a sentence', () => {
+    // A live run offered five repositories about dashboard goals as the closest
+    // match for "log in as a Vendor Admin", on the strength of sharing the word
+    // "user". Noise printed exactly where a reader is scanning for a lead.
+    expect(
+      hintCandidates(
+        'Log in as a user assigned the Vendor Admin role but not the HPB Activity Vendor User Manager role',
+        methods,
+        [],
+      ),
+    ).toEqual([]);
   });
 });

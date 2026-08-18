@@ -6,6 +6,7 @@ import type { LLMProvider } from '../llm/types.js';
 import { loadAndRender } from '../generator/template-loader.js';
 import { silentLogger, type Logger } from '../shared/logger.js';
 import { near } from './kb-gaps.js';
+import { checkDraftNeeds, type NeedCheck } from './draft-check.js';
 
 /**
  * Draft a knowledge base from a requirement document (Bubblegum B2.5).
@@ -39,6 +40,12 @@ export interface DraftResult {
   draft: DraftedKb;
   /** Per-state outcome of matching `setupHint` against the suite. */
   resolutions: Resolution[];
+  /**
+   * Whether the draft grounds its own preconditions, checked with the matchers
+   * `flint kb` uses. A draft that will score zero should say so here, not two
+   * commands later.
+   */
+  needs: NeedCheck[];
   estimatedPromptTokens: number;
 }
 
@@ -81,12 +88,15 @@ export async function draftKnowledgeBase(options: DraftOptions): Promise<DraftRe
       .map((state) => resolveSetup(entity.entity, state, options.manifest)),
   );
 
+  const needs = checkDraftNeeds(draft, options.existing);
+
   logger.info(
     {
       features: draft.features.length,
       entities: draft.entities.length,
       outOfScope: draft.outOfScope.length,
       unresolved: resolutions.filter((r) => r.kind === 'unresolved').length,
+      ungrounded: needs.filter((n) => n.status !== 'grounded').length,
     },
     'draft: generated',
   );
@@ -94,6 +104,7 @@ export async function draftKnowledgeBase(options: DraftOptions): Promise<DraftRe
   return {
     draft,
     resolutions,
+    needs,
     estimatedPromptTokens: Math.ceil(rendered.text.length / 4),
   };
 }
@@ -156,9 +167,37 @@ export function resolveSetup(
 
   // No exact name in the hint. Offer what is close, but do not pick — the hint
   // is prose, and prose that merely resembles a method name is not evidence.
-  const candidates = [...near(hint, methods), ...near(hint, flows)].slice(0, 5);
+  const candidates = hintCandidates(hint, methods, flows);
   return { ...base, kind: 'unresolved', candidates };
 }
+
+/**
+ * Plausible methods for a setup hint — or nothing, when the hint is a paragraph.
+ *
+ * `near` compares *names*: the right noun with the wrong verb, which is the
+ * mistake people make when they write `setGAQStatus` for `updateGAQ`. A hint of
+ * a few words is close enough to a name for that comparison to mean something.
+ *
+ * A hint of twenty words is not a name, it is a situation — "Log in as a user
+ * assigned the Vendor Admin role but not the HPB Activity Vendor User Manager
+ * role". In a suite of 200 methods, some of them share "user" or "activity"
+ * with any sentence you care to write, so a live run offered five repositories
+ * about dashboard goals as the closest match for a login. That is noise printed
+ * exactly where a reader is scanning for a lead, and it makes the honest
+ * suggestions beside it less believable too. Saying nothing is the better
+ * answer.
+ *
+ * A hint that does name a real method never reaches here — `containsToken`
+ * matched it outright.
+ */
+export function hintCandidates(hint: string, methods: string[], flows: string[]): string[] {
+  const words = hint.split(/[^A-Za-z0-9]+/).filter((word) => word.length > 1);
+  if (words.length > MAX_HINT_WORDS) return [];
+  return [...near(hint, methods), ...near(hint, flows)].slice(0, 5);
+}
+
+/** Where a hint stops reading as a name and starts reading as a sentence. */
+const MAX_HINT_WORDS = 8;
 
 /** Whether a hint names a reference outright, as a whole token. */
 function containsToken(hint: string, reference: string): boolean {

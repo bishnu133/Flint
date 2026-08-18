@@ -4,6 +4,7 @@ import { stringify as stringifyYaml } from 'yaml';
 import type { DraftEntity, DraftFeature, DraftedKb } from '../schemas/draft.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { Resolution } from './draft.js';
+import type { NeedCheck } from './draft-check.js';
 import { near } from './kb-gaps.js';
 
 /**
@@ -254,6 +255,7 @@ export function formatDraftSummary(
   draft: DraftedKb,
   resolutions: Resolution[],
   files: DraftFile[],
+  needs: NeedCheck[],
 ): string {
   const lines: string[] = [];
 
@@ -272,6 +274,34 @@ export function formatDraftSummary(
   if (draft.outOfScope.length > 0) {
     lines.push('', 'Out of scope for this suite:');
     for (const item of draft.outOfScope) lines.push(`  - ${item.what}`, `      ${item.why}`);
+  }
+
+  // Whether the draft grounds itself, reported here rather than left for
+  // `flint kb` to discover. A run that wrote four good-looking files and scores
+  // zero should say so while the operator is still looking at it.
+  const stranded = needs.filter((n) => n.status !== 'grounded');
+  if (stranded.length > 0) {
+    lines.push('', 'Preconditions that will not ground:');
+    for (const check of stranded) {
+      lines.push(`  - ${check.featureId}: ${check.need}`);
+      if (check.status === 'no-state') {
+        lines.push(
+          `      \`${check.entity}\` matches, but none of its state names read inside that sentence.`,
+          `      states: ${check.known.join(', ')}`,
+        );
+      } else {
+        lines.push(
+          '      no entity or role name reads inside that sentence.',
+          `      known: ${check.known.join(', ') || 'nothing yet'}`,
+        );
+      }
+    }
+    lines.push(
+      '',
+      '  `flint kb` matches these by words: the entity and state a need asks for',
+      '  have to be readable inside the need itself. Shorten the state name, or',
+      '  reword the need to use it — either fixes the pair.',
+    );
   }
 
   const unresolved = resolutions.filter((r) => r.kind === 'unresolved');

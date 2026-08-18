@@ -1,4 +1,4 @@
-<!-- version: 4 -->
+<!-- version: 5 -->
 
 <!--
 B2.5 — turn a requirement document into a draft knowledge base.
@@ -74,6 +74,17 @@ that is in neither has been silently dropped, and a reviewer comparing your
 output against the card will not find it — which is worse than a bad split,
 because a bad split is visible.
 
+# Pages
+
+`pages` holds **URL fragments**, matched against the screens Flint explored:
+`/inventory.html`, `/facilitators`, `/admin/vendors`. A screen's display name
+does not match anything — "Facilitators tab / Facilitator listing page" is a
+description, and it is reported as an unknown page.
+
+If the document does not give you a path or a URL, leave `pages` empty. The
+planner finds the screen from the acceptance criteria; a wrong hint is worse
+than no hint, because it sends the planner to the wrong page.
+
 # Preconditions: `dataNeeds`
 
 Write each precondition as a sentence a tester would say out loud:
@@ -89,6 +100,33 @@ knowledge base written in the same register.
 column exists needs no data in that column. Over-declaring blocks a feature that
 would otherwise run.
 
+## A need must name the thing that satisfies it
+
+This is where drafts go wrong, and it is invisible until somebody checks.
+
+Flint grounds a need by **looking for the entity name and the state name inside
+the sentence you wrote**. It is word matching, not judgement. So the need and
+the state have to be written in the same words, or they never meet:
+
+    dataNeeds:  a BAP user with Vendor Admin role who is not assigned the
+                HPB Activity Vendor User Manager role
+    entity:     vendor-admin-role
+    state:      h365-vendor-admin-without-manager        <-- grounds nothing
+
+Both are perfectly good English. `h365-vendor-admin-without-manager` does not
+appear in that sentence, so the feature reads as undocumented even though you
+documented it. Written as a pair instead:
+
+    dataNeeds:  a vendor admin without manager access
+    entity:     vendor-admin
+    state:      without-manager                          <-- both read inside
+
+Name the state in the words the need already uses, and keep it short. The state
+name is what has to fit inside the sentence, not the other way round: a state
+called `unfit` fits anywhere, and one called `user-with-unfit-gaq-status-set`
+fits nowhere. Hyphens and spaces are treated alike, so `partial-fit` matches
+"partial fit".
+
 # Entities and states
 
 For each thing a test must **put into a particular state**, propose an entity
@@ -99,6 +137,12 @@ noun the document mentions is not automatically an entity. Ask: would a test
 have to *set this up* before it could run? If the answer is no — it is just
 something the feature reads, or a synonym for a state of something else — leave
 it out. Entities nobody sets up become files nobody fills in.
+
+**Who is logged in is a role, not an entity.** "a BAP user with the Vendor Admin
+role" is satisfied by picking a credential getter, not by seeding data, so it
+belongs in `roles` below. Modelling it as an entity with states puts a login
+behind a data setup path that does not exist, and every one of those states is
+written out as a TODO nobody can close.
 
 - `entity` is kebab-case and singular-ish: `gaq`, `badge`, `mvpa-data`.
 - `aliases` is where you earn your keep. List **every** other name the document
@@ -120,6 +164,15 @@ If the document names who performs the action, propose a role. `credentialsHint`
 is the role as the document describes it; Flint matches it against the suite's
 credential getters. Where two getters could plausibly fit, say so in
 `openQuestions` rather than choosing.
+
+`aliases` carries the same weight here as it does for entities, and for the same
+reason: a role is matched against a `dataNeeds` sentence by name. `id` is
+camelCase — `vendorAdmin` — which never reads inside prose, so the alias is what
+actually does the matching. List how the document says it: "Vendor Admin",
+"Vendor Admins", "vendor admin role".
+
+One role per distinct access, not one per sentence that mentions it. Two
+acceptance criteria that both need a Vendor Admin need one role.
 
 # Open questions
 
