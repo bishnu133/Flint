@@ -97,10 +97,15 @@ async function runBubblegum(feature: string | undefined, opts: BubblegumOptions)
     // The getters the feature's roles grounded to, from the same check the
     // operator already read. Re-deriving them here could reach a different
     // answer than the gap report they approved.
-    const grounded = checkKbGaps({ spec, knowledge, manifest, kbDir: config.kbDir }).grounded;
-    const credentialGetters = grounded
+    const report = checkKbGaps({ spec, knowledge, manifest, kbDir: config.kbDir });
+    const credentialGetters = report.grounded
       .filter((item) => item.entity === 'role')
       .map((item) => item.via);
+    // Whether the feature's declared data contract is fully answered. When it
+    // is, the planner's own `data` prerequisites are a restatement rather than
+    // news, and a test should not sit skipped waiting for setup that exists.
+    const declared = spec.frontmatter.dataNeeds ?? [];
+    const dataNeedsGrounded = declared.length > 0 && report.gaps.length === 0;
 
     const suite = buildSuite({
       plan,
@@ -108,6 +113,7 @@ async function runBubblegum(feature: string | undefined, opts: BubblegumOptions)
       manifest,
       title: spec.frontmatter.title ?? plan.featureId,
       credentialGetters,
+      dataNeedsGrounded,
     });
 
     for (const file of renderSuite(suite)) {

@@ -155,6 +155,7 @@ function renderFlow(
       continue;
     }
     if (step.kind !== 'act') continue;
+
     body.push(`  await act(engine, ${actArgument(step, featureId, keys)});`);
   }
 
@@ -258,7 +259,8 @@ function renderTestFile(suite: BubblegumSuite): string {
     '',
   );
 
-  for (const test of suite.tests) lines.push(...renderTest(test), '');
+  const seenNotes = new Set<string>();
+  for (const test of suite.tests) lines.push(...renderTest(test, seenNotes), '');
 
   lines.push(
     '  } catch (error) {',
@@ -277,8 +279,11 @@ function renderTestFile(suite: BubblegumSuite): string {
   return lines.join('\n');
 }
 
-function renderTest(test: BubblegumTest): string[] {
+function renderTest(test: BubblegumTest, seenNotes: Set<string>): string[] {
   const body: string[] = [];
+  for (const url of test.goto) {
+    body.push(`      await page.goto('${url}', { waitUntil: 'domcontentloaded' });`);
+  }
   for (const call of test.reuse) {
     body.push(`      await ${call.exportName}(engine, page${argsOf(call)});`);
   }
@@ -296,7 +301,14 @@ function renderTest(test: BubblegumTest): string[] {
     '    });',
   ];
 
-  const notes = test.notes.map((note) => `    // ${note}`);
+  // A note that applies to every case is a fact about the run, not about this
+  // test. Repeating it seven times buries the ones that differ.
+  const notes = test.notes
+    .filter((note) => !seenNotes.has(note))
+    .map((note) => {
+      seenNotes.add(note);
+      return `    // ${note}`;
+    });
 
   if (test.mode.kind === 'live') return [...notes, ...call];
 

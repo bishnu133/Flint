@@ -18,7 +18,6 @@ const SUITE: BubblegumSuite = {
       caseId: 'open-listing',
       summary: 'Vendor Admin opens the Facilitator listing',
       steps: [
-        { kind: 'goto', url: 'https://portal.test/web/h365-portal/facilitators/list' },
         { kind: 'act', text: 'Click the Facilitators tab', elementId: 'el-tab', label: 'Facilitators' },
         {
           kind: 'act',
@@ -36,6 +35,7 @@ const SUITE: BubblegumSuite = {
       title: 'Vendor Admin opens the Facilitator listing',
       tags: ['@flint'],
       mode: { kind: 'live' },
+      goto: ['https://portal.test/web/h365-portal/facilitators/list'],
       reuse: [
         {
           flowId: 'login.loginFlow',
@@ -79,7 +79,7 @@ describe('the four-layer layout', () => {
   it('writes no data file when nothing is typed or chosen', () => {
     const bare: BubblegumSuite = {
       ...SUITE,
-      flows: [{ ...SUITE.flows[0]!, steps: [SUITE.flows[0]!.steps[1]!] }],
+      flows: [{ ...SUITE.flows[0]!, steps: [SUITE.flows[0]!.steps[0]!] }],
     };
     expect(renderSuite(bare).map((f) => f.path)).not.toContain(
       'data/vendor-admin-view-facilitators.data.ts',
@@ -162,6 +162,26 @@ describe('the test file', () => {
     expect(render().test.contents).toContain(
       "const { getBAPActivityVendorAdminUserCredentials } = await import('../../../../data/BAP');",
     );
+  });
+
+  it('navigates in the test, not in the flow — where the suite puts it', () => {
+    // A "flow" containing nothing but a goto is an exported function that does
+    // not earn its name, and the suite's own flows never navigate.
+    expect(render().flow.contents).not.toContain('page.goto(');
+    expect(render().test.contents).toContain(
+      "await page.goto('https://portal.test/web/h365-portal/facilitators/list', { waitUntil: 'domcontentloaded' });",
+    );
+  });
+
+  it('says a shared note once, not once per case', () => {
+    // A note true of every case is a fact about the run. Repeated seven times
+    // it buries the ones that differ.
+    const shared = 'The plan does not sign in, so the session comes from `login.loginFlow`.';
+    const twice = render({
+      ...SUITE,
+      tests: [SUITE.tests[0]!, { ...SUITE.tests[0]!, caseId: 'second' }],
+    }).test.contents;
+    expect(twice.split(shared)).toHaveLength(2);
   });
 
   it('runs each case through runTest and tears the engine down in finally', () => {

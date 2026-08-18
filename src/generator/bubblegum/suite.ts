@@ -55,6 +55,14 @@ export interface BubblegumTest {
   title: string;
   tags: string[];
   mode: TestMode;
+  /**
+   * Where the test navigates before driving anything.
+   *
+   * In the test rather than the flow, because that is where the suite's own
+   * tests put it — and because a "flow" containing nothing but a `goto` is an
+   * exported function that does not earn its name.
+   */
+  goto: string[];
   /** Flows from the manifest, called before this feature's own flow. */
   reuse: ReusedCall[];
   /** The generated flow this test drives with, if it has steps of its own. */
@@ -88,6 +96,22 @@ export interface BuildSuiteOptions {
    * conclusion than the gap report the operator already read and approved.
    */
   credentialGetters?: string[];
+  /**
+   * Whether every `dataNeeds` entry in the spec is grounded.
+   *
+   * The planner writes its own `prerequisites` list, and on a live run it
+   * restated preconditions the knowledge base had already answered: "a BAP user
+   * with Vendor Admin role..." — which is the role being logged in with — and
+   * "seed at least one vendor facilitator record", which is the state recorded
+   * as provided by the environment. Four of seven cases were emitted skipped on
+   * that basis, waiting for setup that exists.
+   *
+   * `dataNeeds` is the feature's declared data contract and `flint kb` checks
+   * it. When it is fully grounded, a `data` prerequisite is a restatement, not
+   * new information — so it stops blocking, and stays in the file as a note.
+   * Prerequisites of any other kind still block: nothing has checked those.
+   */
+  dataNeedsGrounded?: boolean;
 }
 
 export function buildSuite(options: BuildSuiteOptions): BubblegumSuite {
@@ -112,7 +136,13 @@ export function buildSuite(options: BuildSuiteOptions): BubblegumSuite {
       }),
     );
 
-    const built = buildTest({ testCase, phrases, manifest, auth });
+    const built = buildTest({
+      testCase,
+      phrases,
+      manifest,
+      auth,
+      dataNeedsGrounded: options.dataNeedsGrounded ?? false,
+    });
     if (built.flow !== undefined) flows.push(built.flow);
     if (auth !== undefined && built.test.reuse.some((r) => r.flowId === auth.flow.id)) {
       getters.add(auth.getter);
@@ -140,6 +170,7 @@ interface BuildTestInput {
   phrases: Phrase[];
   manifest: SuiteManifest;
   auth: { flow: FlowEntry; getter: string } | undefined;
+  dataNeedsGrounded: boolean;
 }
 
 function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: BubblegumFlow } {
@@ -164,7 +195,10 @@ function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: Bubbleg
   }
 
   const ungrounded = phrases.filter((p) => p.kind === 'ungrounded');
-  const mode = modeFor(testCase, ungrounded);
+  const mode = modeFor(testCase, ungrounded, input.dataNeedsGrounded);
+  for (const covered of coveredPrerequisites(testCase, input.dataNeedsGrounded)) {
+    notes.push(`Precondition already grounded in the knowledge base — ${covered}`);
+  }
 
   if (match === undefined && auth !== undefined && ungrounded.length === 0) {
     // No login to collapse, and a live plan showed why that is the normal case
@@ -190,6 +224,17 @@ function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: Bubbleg
     );
   }
 
+  // Leading navigation is lifted out to the test. Only leading: a `goto` in the
+  // middle of a journey is part of that journey, and hoisting it would reorder
+  // the steps around it.
+  let lead = 0;
+  while (phrases[lead]?.kind === 'goto') lead += 1;
+  const goto = phrases
+    .slice(0, lead)
+    .map((p) => (p.kind === 'goto' ? p.url : ''))
+    .filter((url) => url !== '');
+  phrases = phrases.slice(lead);
+
   const steps = phrases.filter((p) => p.kind === 'act' || p.kind === 'goto');
   const checks = phrases.filter((p) => p.kind === 'verify' || p.kind === 'url');
   for (const phrase of phrases) {
@@ -213,6 +258,7 @@ function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: Bubbleg
       title: testCase.title,
       tags: testCase.tags,
       mode,
+      goto,
       reuse,
       ...(flow !== undefined ? { flow: flow.name } : {}),
       checks,
@@ -232,7 +278,11 @@ function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: Bubbleg
  * missing locator will not build. Here the file compiles perfectly and fails as
  * a resolver timeout in CI, so the refusal has to happen at generation time.
  */
-function modeFor(testCase: TestCase, ungrounded: Phrase[]): TestMode {
+function modeFor(
+  testCase: TestCase,
+  ungrounded: Phrase[],
+  dataNeedsGrounded: boolean,
+): TestMode {
   if (testCase.status === 'blocked') {
     return { kind: 'fixme', reason: testCase.blockedReason ?? 'blocked by the planner' };
   }
@@ -242,7 +292,7 @@ function modeFor(testCase: TestCase, ungrounded: Phrase[]): TestMode {
       .filter((r) => r !== '');
     return { kind: 'fixme', reason: reasons.join('; ') };
   }
-  const prerequisites = testCase.prerequisites ?? [];
+  const prerequisites = blockingPrerequisites(testCase, dataNeedsGrounded);
   if (prerequisites.length > 0) {
     return {
       kind: 'skip',
@@ -277,4 +327,18 @@ export function flowName(caseId: string): string {
     .join('');
   const safe = /^[A-Za-z_$]/.test(camel) ? camel : `case${camel}`;
   return `${safe}Flow`;
+}
+
+/** Prerequisites that still stop a run, given what the knowledge base answered. */
+function blockingPrerequisites(testCase: TestCase, dataNeedsGrounded: boolean) {
+  const prerequisites = testCase.prerequisites ?? [];
+  return dataNeedsGrounded ? prerequisites.filter((p) => p.kind !== 'data') : prerequisites;
+}
+
+/** Prerequisites the knowledge base already answered, kept as notes. */
+function coveredPrerequisites(testCase: TestCase, dataNeedsGrounded: boolean): string[] {
+  if (!dataNeedsGrounded) return [];
+  return (testCase.prerequisites ?? [])
+    .filter((p) => p.kind === 'data')
+    .map((p) => p.description);
 }

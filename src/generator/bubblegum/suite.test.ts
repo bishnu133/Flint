@@ -372,10 +372,29 @@ describe('a plan that never signs in', () => {
   it('resolves a path against the base url, so the file depends on no config', () => {
     // Planners write paths, and `page.goto()` accepts those only when the
     // Playwright config sets a baseURL — a property of somebody else's repo.
+    expect(build([noLogin]).tests[0]!.goto).toEqual([
+      'https://portal.test/web/h365-portal/facilitators/list',
+    ]);
+  });
+
+  it('leaves navigation to the test, so a flow is only the driving', () => {
     const suite = build([noLogin]);
-    expect(suite.flows[0]!.steps[0]).toEqual({
-      kind: 'goto',
-      url: 'https://portal.test/web/h365-portal/facilitators/list',
-    });
+    expect(suite.flows[0]!.steps.every((s) => s.kind === 'act')).toBe(true);
+  });
+
+  it('writes no flow at all for a case that only navigates and asserts', () => {
+    // Four of seven cases in a live plan were exactly this shape. An exported
+    // function containing one `goto` does not earn its name.
+    const suite = build([
+      testCase({
+        steps: [
+          { action: 'goto', value: '/web/h365-portal/' },
+          { action: 'assert', elementRef: 'el-tab', assertion: { kind: 'visible', expected: true } },
+        ],
+      }),
+    ]);
+    expect(suite.flows).toEqual([]);
+    expect(suite.tests[0]!.flow).toBeUndefined();
+    expect(suite.tests[0]!.checks).toHaveLength(1);
   });
 });

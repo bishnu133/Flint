@@ -3808,3 +3808,46 @@ Tests: 70 across the four bubblegum files. Build, typecheck, lint clean.
 Still missing, and the reason the command says so on every run: `preflight()`.
 A phrase with a typo is valid TypeScript, so nothing between generation and a
 failing CI run checks the sentences at all.
+
+### B3.5 — Three defects a real generated file showed (2026-08-18)
+
+`flint bubblegum` ran against the real plan and wrote two files. `npx tsc
+--noEmit` in the target repo reported 62 errors, **all of them in
+`node_modules/@types/node`** — a pre-existing TypeScript/@types version
+mismatch in that project (`esnext.disposable` missing). Zero errors in the
+generated code. But reading the output found three real problems.
+
+**Four of seven cases were skipped waiting for data that exists.** The planner
+writes its own `prerequisites`, and it restated preconditions the knowledge base
+had already answered: "a BAP user with Vendor Admin role who is NOT assigned to
+HPB Activity Vendor User Managers" is the role being logged in with, and "seed at
+least one vendor facilitator record" is the state recorded as provided by the
+environment. `flint kb` said *all 3 declared data needs are grounded* and the
+emitter then marked four tests `@needs-setup` anyway. All of B2, B2.5 and the
+`environment` field from B2.5.10 were being spent and then ignored.
+
+`dataNeeds` is the feature's declared data contract and `flint kb` checks it.
+When it is fully grounded, a `data` prerequisite is a restatement rather than
+news, so it stops blocking and stays in the file as a note. Prerequisites of any
+other kind — config, external-service, manual — still block: nothing has checked
+those.
+
+**Empty flow functions.** Four flows contained a `goto` and nothing else,
+because the case was navigate-then-assert and the assertion belongs to the test.
+An exported function whose body is one navigation does not earn its name — and
+the suite's own flows never navigate at all; their tests do. Leading `goto`
+phrases now belong to the test, flows contain only `act` steps, and a case with
+no driving gets no flow.
+
+**The same note seven times.** "The plan does not sign in — the Screen Model was
+captured from an authenticated crawl…" is a fact about the run, not about any
+one case. Printed above every test it buried the notes that differed. Now said
+once.
+
+Left alone deliberately: `Click the search` and `the "vendor-facilitator-list"
+is present`, where the only addressable name is a test id. They read poorly and
+they are honest — the alternative is refusing the step, and a `data-testid` is
+still something the resolver can find. The app-side fix (an `aria-label` on
+those controls) is the real answer and is the operator's call.
+
+Tests: 74 across the bubblegum files. Build, typecheck, lint clean.
