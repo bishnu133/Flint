@@ -69,7 +69,7 @@ export function phraseFor(input: PhraseInput): Phrase {
   const { step, element } = input;
 
   if (step.action === 'goto') {
-    const url = step.value ?? input.baseUrl;
+    const url = absoluteUrl(step.value, input.baseUrl);
     return url === undefined
       ? { kind: 'ungrounded', reason: 'a goto step with no url and no baseUrl to fall back on' }
       : { kind: 'goto', url };
@@ -195,3 +195,25 @@ export function addressableName(element: Element): string | undefined {
 
 /** Beyond this an element's text is prose rather than a label. */
 const MAX_NAME_LENGTH = 60;
+
+/**
+ * A `goto` target the generated file can use on its own.
+ *
+ * Planners write paths — a live plan produced `/web/h365-portal/facilitators/list`
+ * — and `page.goto()` only accepts those when the Playwright config sets a
+ * `baseURL`. Whether it does is a property of somebody else's repository, so the
+ * emitted call carries the whole URL and depends on nothing. Resolution is
+ * `new URL`, which handles the case naive concatenation gets wrong: an absolute
+ * path against a base that already has one would otherwise be doubled.
+ */
+export function absoluteUrl(value: string | undefined, baseUrl: string | undefined): string | undefined {
+  const target = value ?? baseUrl;
+  if (target === undefined || target === '') return undefined;
+  if (/^https?:\/\//i.test(target)) return target;
+  if (baseUrl === undefined) return undefined;
+  try {
+    return new URL(target, baseUrl).toString();
+  } catch {
+    return undefined;
+  }
+}

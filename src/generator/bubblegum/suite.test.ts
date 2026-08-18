@@ -331,3 +331,51 @@ describe('determinism', () => {
     expect(build([testCase()])).toEqual(build([testCase()]));
   });
 });
+
+describe('a plan that never signs in', () => {
+  /**
+   * The normal case, not the exception. A live plan against the real BAP portal
+   * opened every one of its seven cases with `goto /web/h365-portal/` and
+   * contained no login steps at all — because the Screen Model was captured from
+   * an authenticated crawl, so the planner never saw a sign-in page. Left alone
+   * the emitted test navigates as an anonymous visitor and fails on the first
+   * assertion.
+   */
+  const noLogin = testCase({
+    steps: [
+      { action: 'goto', value: '/web/h365-portal/facilitators/list' },
+      { action: 'click', elementRef: 'el-tab' },
+    ],
+  });
+
+  it('signs in from the role the feature grounded to', () => {
+    const [test] = build([noLogin]).tests;
+    expect(test!.reuse).toEqual([
+      {
+        flowId: 'login.loginFlow',
+        exportName: 'loginFlow',
+        importPath: 'flows/login.flow.ts',
+        args: ['getVendorAdminCredentials()'],
+      },
+    ]);
+    expect(test!.notes[0]).toContain('does not sign in');
+  });
+
+  it('does not sign in twice when the plan already logs in', () => {
+    expect(build([testCase()]).tests[0]!.reuse).toHaveLength(1);
+  });
+
+  it('adds nothing when no role grounded — a guess would be worse', () => {
+    expect(build([noLogin], []).tests[0]!.reuse).toEqual([]);
+  });
+
+  it('resolves a path against the base url, so the file depends on no config', () => {
+    // Planners write paths, and `page.goto()` accepts those only when the
+    // Playwright config sets a baseURL — a property of somebody else's repo.
+    const suite = build([noLogin]);
+    expect(suite.flows[0]!.steps[0]).toEqual({
+      kind: 'goto',
+      url: 'https://portal.test/web/h365-portal/facilitators/list',
+    });
+  });
+});

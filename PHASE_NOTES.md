@@ -3700,3 +3700,50 @@ Tests: 44 across the two bubblegum files. Build, typecheck, lint clean.
 
 Next: `render.ts` (the suite as `.flow.ts` / `.data.ts` / `.test.mts`), then the
 `preflight()` gate.
+
+### B3.3 — What a live plan proved wrong about B3.2 (2026-08-18)
+
+First real `flint plan` against BAP: 7 cases, all 6 acceptance criteria covered,
+2 blocked, 6,417 in / 9,464 out. The planner refused to invent element ids for
+controls the crawl never saw and said why — "an assertion of absence requires a
+real element id captured from a state where these controls exist for another
+role" — which is the Phase 3 discipline holding under a genuinely awkward
+requirement.
+
+It also broke two assumptions I had built B3.2 on.
+
+**Every case opens with `goto`, and none of them signs in.** `matchFlowPrefix`
+was designed to collapse a login prefix into a call to the suite's own
+`loginFlow`. There is no prefix to collapse: the Screen Model was captured from
+an authenticated crawl, so the planner never saw a sign-in page. This is the
+normal case, not an edge case, and left alone the emitted test would navigate as
+an anonymous visitor and fail on its first assertion.
+
+So the auth call is now added on the other route, which was already built and
+already grounded: `resolveAuth` follows the feature's `dataNeeds` → role →
+credential getter → the manifest's auth flow, three links `flint kb` verified
+before generation. Two mechanisms, one for a plan that logs in and one for a
+plan that assumes it, and neither ever names a flow that is not in the manifest.
+
+Not added to a test that is already refused, though — that interaction was a bug
+the first version had. A plan whose login could not be read still contains those
+steps, so prepending a second sign-in would put scaffolding into a file nobody
+can run and bury the real problem.
+
+**Planners write paths, not URLs.** Every `goto` in the plan is
+`/web/h365-portal/facilitators/list`. `page.goto()` accepts that only when the
+Playwright config sets a `baseURL`, which is a property of somebody else's
+repository. `absoluteUrl` resolves against the Screen Model's base with `new
+URL`, so the generated file depends on nothing — and gets right the case naive
+concatenation gets wrong, an absolute path against a base that already has one.
+
+**A finding about the app, not about Flint.** The planner's first open question
+reports that the search and filter controls are unlabelled icon buttons. For
+`playwright-pom` that is fine — a CSS selector does not care. For this dialect it
+is fatal: an element with no accessible name, no text and no test id cannot be
+addressed in an English sentence at all, so those steps will be refused and
+their case emitted as `fixme`. The two dialects have genuinely different coverage
+boundaries, and the fix is an `aria-label` or a `data-testid` on those controls
+— cheap, and good practice regardless.
+
+Tests: 48 across the bubblegum files. Build, typecheck, lint clean.

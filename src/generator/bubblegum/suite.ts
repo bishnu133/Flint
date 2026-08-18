@@ -114,7 +114,7 @@ export function buildSuite(options: BuildSuiteOptions): BubblegumSuite {
 
     const built = buildTest({ testCase, phrases, manifest, auth });
     if (built.flow !== undefined) flows.push(built.flow);
-    if (built.test.reuse.some((r) => r.args.length > 0) && auth !== undefined) {
+    if (auth !== undefined && built.test.reuse.some((r) => r.flowId === auth.flow.id)) {
       getters.add(auth.getter);
     }
     tests.push(built.test);
@@ -165,6 +165,30 @@ function buildTest(input: BuildTestInput): { test: BubblegumTest; flow?: Bubbleg
 
   const ungrounded = phrases.filter((p) => p.kind === 'ungrounded');
   const mode = modeFor(testCase, ungrounded);
+
+  if (match === undefined && auth !== undefined && ungrounded.length === 0) {
+    // No login to collapse, and a live plan showed why that is the normal case
+    // rather than the exception: the Screen Model is captured from an
+    // authenticated crawl, so the planner never sees a sign-in page and every
+    // case opens with `goto`. Left alone the emitted test would navigate as an
+    // anonymous visitor and fail on the first assertion.
+    //
+    // The call is still grounded, just by the other route: the feature's
+    // `dataNeeds` grounded to a role, the role names a credential getter, and
+    // the manifest says which flow is auth — three links `flint kb` checked
+    // before generation.
+    //
+    // Not added to a test that is already refused. A plan whose login could not
+    // be read still contains those steps, so prepending a second sign-in would
+    // put scaffolding in a file nobody can run and make the real problem harder
+    // to see.
+    reuse.push(callFor(auth.flow, auth));
+    notes.push(
+      `The plan does not sign in — the Screen Model was captured from an ` +
+        `authenticated crawl — so the session comes from \`${auth.flow.id}\` ` +
+        `with \`${auth.getter}()\`, which is the role this feature grounded to.`,
+    );
+  }
 
   const steps = phrases.filter((p) => p.kind === 'act' || p.kind === 'goto');
   const checks = phrases.filter((p) => p.kind === 'verify' || p.kind === 'url');
