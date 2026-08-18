@@ -3638,3 +3638,65 @@ Tests: 23 new, table-driven. Build, typecheck and lint clean.
 
 Next in B3: the emitter (TestPlan -> `.flow.ts` / `.data.ts` / `.test.mts`,
 reusing every flow the manifest already has), then the `preflight()` gate.
+
+### B3.2 — Reuse has to be proved, not guessed (2026-08-18)
+
+`reuse.ts` and `suite.ts`: a `TestPlan` becomes a Bubblegum suite — flows that
+drive, tests that assert, and calls to flows the suite already has.
+
+**How "never invent a flow" is enforced.** Ask a model to reuse the login and it
+writes `loginToPortal()` when the export is `loginFlow`; the file compiles,
+imports nothing that exists, and fails at run time. So reuse is not asked for at
+all. B1 already records each flow's phrases verbatim, holes included:
+
+```
+login.loginFlow
+  Enter "${credentials.username}" into Username
+  Enter "${credentials.password}" into Password
+  Click Sign In
+```
+
+A plan that opens by filling a username, filling a password and clicking Sign In
+produces those same sentences with the holes filled. `matchFlowPrefix` compares
+them — `${...}` matches anything, everything outside a hole must match exactly,
+so a flow that clicks `Sign In` never stands in for a step that clicks `Sign
+Up`. The reuse is provable rather than plausible, and when nothing matches
+nothing is reused.
+
+Prefix only. Matching anywhere would let a login be spliced out of the middle of
+a test, leaving the steps around it depending on state the call no longer
+produces in that order.
+
+**A test I wrote wrong, and the code was right.** I asserted that an ungrounded
+step *inside* a login prefix should still reuse — the generated code never
+touches that element, so the test would run. It fails, and it should: the phrase
+is the evidence, so a step that cannot be phrased cannot be shown to belong to
+the login. Matching on the steps either side of a hole is exactly the guessing
+this design refuses everywhere else. The test now asserts the conservative
+behaviour and says why; the comment that had overstated it is corrected.
+
+**Flows drive, tests assert.** Taken from the target suite's own code:
+`loginFlow` performs three `act` calls and checks nothing, and its callers do
+the verifying. So a case's `act` steps become a flow function and its `verify`
+steps stay in the test — which is also what makes a flow reusable, since one
+that asserted a feature's expectations could not be called by another.
+
+**One addition to the LOCKED emit precedence.** `blocked` and `prerequisites`
+behave exactly as in `playwright-pom`. New here: an ungrounded phrase forces
+`fixme`. There is no `playwright-pom` equivalent because the compile gate covers
+it — a missing locator will not build. Here the file compiles perfectly and
+fails in CI as a resolver timeout, so the refusal has to happen at generation
+time.
+
+`resolveAuth` reads the login from grounded facts rather than from step text:
+the feature's `dataNeeds` grounded to a role, the role names a getter, the
+manifest says which flow is auth. Every link was checked by `flint kb` before
+generation. It declines when the suite has several auth flows, because that is a
+choice and a choice belongs to a human — and it distinguishes login from logout
+by name, since both are `kind: 'auth'` and getting it wrong would open every
+test by signing out.
+
+Tests: 44 across the two bubblegum files. Build, typecheck, lint clean.
+
+Next: `render.ts` (the suite as `.flow.ts` / `.data.ts` / `.test.mts`), then the
+`preflight()` gate.
