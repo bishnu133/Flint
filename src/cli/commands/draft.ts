@@ -8,7 +8,7 @@ import { AnthropicProvider } from '../../llm/index.js';
 import { scanManifest } from '../../indexer/manifest-scan.js';
 import { tryReadManifest } from '../../indexer/manifest-store.js';
 import { readAppKnowledge } from '../../planner/kb-app.js';
-import { draftKnowledgeBase } from '../../planner/draft.js';
+import { documentWarning, draftKnowledgeBase } from '../../planner/draft.js';
 import { formatDraftSummary, renderDraft, writeDraft } from '../../planner/draft-writer.js';
 import { modelPath, readModel } from '../../explorer/screen-model-store.js';
 import { EMPTY_KNOWLEDGE } from '../../schemas/kb-app.js';
@@ -70,6 +70,9 @@ async function runDraft(documentPath: string, opts: DraftOptions): Promise<void>
       hint: 'Export the card as text or markdown — a PDF will not read as text here.',
     });
   }
+
+  const oversized = documentWarning(document, basename(absolute));
+  if (oversized !== undefined) console.log(`${oversized}\n`);
 
   const manifest =
     tryReadManifest(projectRoot) ??

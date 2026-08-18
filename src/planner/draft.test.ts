@@ -6,7 +6,8 @@ import { parse as parseYaml } from 'yaml';
 import { FakeProvider } from '../llm/fake.js';
 import type { SuiteManifest } from '../schemas/manifest.js';
 import type { DraftedKb } from '../schemas/draft.js';
-import { draftKnowledgeBase, resolveSetup } from './draft.js';
+import { documentWarning, draftKnowledgeBase, resolveSetup } from './draft.js';
+import { loadAndRender } from '../generator/template-loader.js';
 import { formatDraftSummary, renderDraft, writeDraft } from './draft-writer.js';
 import { readAppKnowledge, splitFrontmatter } from './kb-app.js';
 
@@ -101,7 +102,10 @@ const DRAFT: DraftedKb = {
     },
   ],
   outOfScope: [
-    { what: 'AC6-AC9 (H365 Activity Dashboard)', why: 'mobile app; this suite drives the web portal' },
+    {
+      what: 'AC6-AC9 (H365 Activity Dashboard)',
+      why: 'mobile app; this suite drives the web portal',
+    },
   ],
   openQuestions: ['Which credential account can open the Activity Data tab?'],
 };
@@ -344,5 +348,62 @@ describe('formatDraftSummary', () => {
     expect(out).toContain('Setup paths with no matching method');
     expect(out).toContain('Open questions');
     expect(out).toContain('status: draft');
+  });
+});
+
+describe('the prompt has an output contract, and it comes last', () => {
+  // The first live run produced 8333 output tokens and no JSON at all. The
+  // template described the fields in prose and never said "return JSON" or
+  // showed the shape — the provider's one-line system instruction was not
+  // enough once the user prompt ended with 45k tokens of conversational JIRA
+  // card. `plan-stage-a.md` had had an explicit Output section all along.
+  const rendered = () =>
+    loadAndRender('draft-kb', {
+      document: 'DOCUMENT-BODY',
+      suite: 'SUITE',
+      screens: 'SCREENS',
+      existing: 'EXISTING',
+    }).text;
+
+  it('states the output shape', () => {
+    const text = rendered();
+    expect(text).toContain('Return **only** a JSON object');
+    for (const key of ['features', 'entities', 'roles', 'outOfScope', 'openQuestions']) {
+      expect(text).toContain(`"${key}"`);
+    }
+  });
+
+  it('puts the output contract after the document', () => {
+    // Ordering is the fix, not decoration. A requirement document reads like
+    // something to reply to; the last instruction before generation has to be
+    // what to actually return.
+    const text = rendered();
+    expect(text.indexOf('DOCUMENT-BODY')).toBeLessThan(text.indexOf('# Output'));
+  });
+
+  it('names every field the schema requires of a state', () => {
+    const text = rendered();
+    expect(text).toContain('setupHint');
+    expect(text).toContain('unreachableReason');
+  });
+});
+
+describe('documentWarning', () => {
+  // A JIRA XML export of one card cost 49,705 input tokens where the same card
+  // as text was under 3,000 — markup the model has to read past, billed per
+  // token, on every draft.
+  it('says nothing about a normal-sized document', () => {
+    expect(documentWarning('a'.repeat(20_000), 'card.md')).toBeUndefined();
+  });
+
+  it('flags a document large enough to be an export artefact', () => {
+    const warning = documentWarning('a'.repeat(200_000), 'HPBPPH-17169.xml');
+    expect(warning).toContain('HPBPPH-17169.xml');
+    expect(warning).toMatch(/markup|export/i);
+  });
+
+  it('names the format when the extension is a known noisy one', () => {
+    expect(documentWarning('a'.repeat(200_000), 'card.xml')).toMatch(/\.xml/);
+    expect(documentWarning('a'.repeat(200_000), 'card.html')).toMatch(/\.html/);
   });
 });

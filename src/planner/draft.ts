@@ -99,6 +99,29 @@ export async function draftKnowledgeBase(options: DraftOptions): Promise<DraftRe
 }
 
 /**
+ * Warn when a document looks like an export carrying more markup than content.
+ *
+ * A JIRA XML export of one card measured 49,705 input tokens; the same card as
+ * plain text was under 3,000. The draft still works — the model reads past the
+ * markup — but the operator pays for every token of it on every run, and the
+ * signal-to-noise ratio is worse for no benefit. Worth one line rather than a
+ * silent 16x.
+ */
+export function documentWarning(document: string, name: string): string | undefined {
+  // ~4 chars per token, and 100k chars is roughly 25k tokens — far more than any
+  // single requirement actually contains.
+  if (document.length < 100_000) return undefined;
+  const extension = /\.(\w+)$/.exec(name)?.[0];
+  const noisy = extension !== undefined && ['.xml', '.html', '.htm'].includes(extension);
+  return (
+    `${name} is ${Math.round(document.length / 1000)}k characters` +
+    (noisy ? ` — ${extension} exports carry a lot of markup.` : '.') +
+    ' Exporting the card as text or markdown usually cuts this by an order of' +
+    ' magnitude, for the same draft at a fraction of the cost.'
+  );
+}
+
+/**
  * Turn a free-text setup hint into a reference the suite actually has.
  *
  * Exact match first, then near-match, then nothing. The third outcome is a

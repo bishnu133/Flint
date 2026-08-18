@@ -3144,3 +3144,39 @@ is the true state of the world.
 
 Tests: 1102 across 76 files (+18), including a round-trip asserting that what
 B2.5 writes, B2 reads without warnings.
+
+### B2.5.1 — The draft prompt never asked for JSON (2026-08-18)
+
+First live run failed: `No JSON object or array found in model output`, after
+two attempts costing 10,369 output tokens. Both attempts ended `end_turn`, not
+`max_tokens` — the model finished happily and produced no JSON at all.
+
+My prompt-authoring error. `draft-kb.md` described the fields in prose and never
+showed the output shape or said "return JSON". `plan-stage-a.md` has had an
+explicit `# Output` section with the full JSON skeleton since Phase 3; I wrote a
+new template and did not carry that across.
+
+The provider does append `Respond with a single valid JSON value only` to the
+system prompt, which is why this passed every test — `FakeProvider` returns
+whatever it is told regardless of the prompt. That one line is not enough when
+the user prompt ends with 45k tokens of conversational JIRA card: a card full of
+reviewer comments reads like something to reply to, and the model replied.
+
+Two changes:
+
+- An `# Output` section with the complete JSON skeleton, every field named.
+- **Placed after the document**, so the last instruction before generation is
+  what to return. `plan-stage-a` gets away with `{{context}}` last because its
+  context is structured Screen Model data; a requirement document is prose that
+  invites a prose answer.
+
+Tests now render the template and assert both the contract and its position
+relative to the document. A prompt is code — the ordering is the fix, not
+decoration, and it deserves a test that fails if someone moves it back.
+
+**Also added: an oversized-document warning.** The operator's JIRA XML export
+measured 49,705 input tokens where the same card as plain text was under 3,000 —
+a 16x multiple of markup, billed on every run. `documentWarning` says so once,
+naming the extension, rather than letting it pass silently.
+
+Tests: 1108 across 76 files (+6).
