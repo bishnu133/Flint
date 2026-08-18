@@ -425,9 +425,17 @@ function readCredentials(file: SourceFile, path: string): CredentialEntry[] {
  * both `username` and `password`. That is checkable from syntax alone, which
  * matters because these files import from workspace packages the scanner
  * deliberately does not resolve.
+ *
+ * The third is the declared return type. A suite whose login flow is typed
+ * `(engine, page, credentials: LoginCredentials)` has already named the concept;
+ * every function that produces one is a credential getter whatever it is called,
+ * and the annotation is right there in the syntax. This signal deliberately does
+ * not require the `get` prefix — the point of it is to survive a project that
+ * names things its own way.
  */
 function looksLikeCredentialGetter(fn: Callable, file: SourceFile): boolean {
   if (/^get.*Credentials$/.test(fn.name)) return true;
+  if (/credential/i.test(fn.returns)) return true;
   if (!/^get[A-Z_]/.test(fn.name)) return false;
   if (hasCredentialLiteral(fn.body)) return true;
 

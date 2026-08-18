@@ -3400,3 +3400,56 @@ Chromium build 1194 under `/opt/pw-browsers` while Playwright 1.62 asks for
 1234, so `src/explorer/*` fails on launch unless the expected paths are shimmed.
 Both new dialog tests were verified against a real browser that way, not
 asserted from a fake.
+
+### B2.5.7 — First run with a Screen Model, and the credential scan is empty (2026-08-18)
+
+Explore finally ran against CCSIT (Keycloak login via `loginScript`, 2 pages,
+33 elements, 31 verified unique, 100% resolve rate on `--validate`). The draft
+that followed is the best one yet and exposed two things.
+
+**What the Screen Model bought.** 12,847 in / 4,054 out, against 18,532 / 7,188
+for the same card without it — roughly 40% cheaper, because the model stopped
+hedging about which screens exist. `entities: 0` and `unresolved: 0`: no phantom
+entities, no TODO states nobody can close. The "who is logged in is a role"
+rule from B2.5.4 did what it was meant to.
+
+**`manifest.credentials` is empty, and has been all along.** `jq '.credentials |
+length'` returns 0, and all four role gaps in `flint kb` are downstream of it.
+
+Worth recording how this hid for so long: an earlier draft's `openQuestions`
+named `getBAPActivityVendorAdminUserCredentials` and
+`getActivityVendorAdminCredentials`, and I read that as evidence the scan had
+found them. It was the opposite. With `credentials` empty, `describeSuite`
+omits the "Credential getters" section entirely, so the model had nothing to
+choose between and invented two plausible names. **A confident-looking model
+output was mistaken for a working deterministic stage** — the same failure
+shape as "an absent input produces a well-formed empty result", one level up.
+
+Third detection signal added: the declared return type. The suite's own login
+flow is typed `(engine, page, credentials: LoginCredentials)`, so the project
+has already named the concept, and `/credential/i` against `fn.returns` finds
+every function that produces one regardless of naming convention. Deliberately
+does not require the `get` prefix, and deliberately looks at the return type
+only — `loginFlow(...): Promise<void>` *consumes* credentials, it does not
+produce them.
+
+Whether that is the whole fix is not yet known: `readCredentials` only sees
+`suiteDir` plus `--root` directories, so the getters may simply never have been
+scanned. Waiting on the operator's `--root` output before concluding.
+
+**Stale drafts inflate the gap report.** `flint kb` reported 3 features, two of
+which — `vendor-admin-facilitator-view` and `vendor-admin-facilitators-view` —
+are the same card drafted twice. The never-overwrite rule compares paths, and
+one letter of difference in the id means a second file rather than a `.draft.md`
+divert. 8 of the 11 gaps came from the previous run's files. Not fixed yet; the
+right answer is probably to match on the `Drafted by flint draft from <source>`
+marker rather than the path, but that deserves its own change.
+
+**Prompt v6.** The one genuine ungrounded need was "at least one vendor
+facilitator record exists in the system" against an existing state named
+`listed-under-company`. B2.5.4 taught the model to write the need and the state
+in the same words — but only when it is proposing both. When the entity already
+exists, the name is not the model's to choose. The prompt now says so, with
+this exact pair as the worked example.
+
+Tests: 1142 across 76 files (+3).

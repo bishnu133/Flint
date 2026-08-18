@@ -473,6 +473,41 @@ describe('credential getters that break the naming convention', () => {
     expect(scan(['packages/data']).credentials).toEqual([]);
   });
 
+  it('finds one by its declared return type, whatever it is called', () => {
+    // The real BAP suite types its login flow `(engine, page, credentials:
+    // LoginCredentials)`. A project that names the concept has already told us
+    // which functions produce one, and the annotation is right there in the
+    // syntax — no prefix convention required.
+    write(
+      'packages/data/BAP.ts',
+      `import type { LoginCredentials } from './types';
+       export function smokeVendorUser(): LoginCredentials {
+         return CREDS.vendor;
+       }`,
+    );
+    expect(scan(['packages/data']).credentials.map((c) => c.getter)).toEqual(['smokeVendorUser']);
+  });
+
+  it('sees through a Promise wrapper', () => {
+    write(
+      'packages/data/BAP.ts',
+      `export async function vendorAdmin(): Promise<LoginCredentials> { return fetchCreds(); }`,
+    );
+    expect(scan(['packages/data']).credentials.map((c) => c.getter)).toEqual(['vendorAdmin']);
+  });
+
+  it('does not claim a flow just because credentials are a parameter', () => {
+    // `loginFlow(engine, page, credentials: LoginCredentials): Promise<void>`
+    // consumes credentials; it does not produce them.
+    write(
+      'packages/data/BAP.ts',
+      `export async function loginFlow(page: Page, credentials: LoginCredentials): Promise<void> {
+         await page.goto('/');
+       }`,
+    );
+    expect(scan(['packages/data']).credentials).toEqual([]);
+  });
+
   it('still requires a get-prefix, so a random object factory is not a credential', () => {
     write(
       'packages/data/BAP.ts',

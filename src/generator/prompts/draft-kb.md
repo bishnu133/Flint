@@ -127,6 +127,21 @@ called `unfit` fits anywhere, and one called `user-with-unfit-gaq-status-set`
 fits nowhere. Hyphens and spaces are treated alike, so `partial-fit` matches
 "partial fit".
 
+**When the entity already exists, you do not get to pick the name.** Look at
+"Knowledge base that already exists" below: those states were named by a human
+and other specs already depend on them. Write the need around the state that is
+there.
+
+    existing:   `vendor-facilitator` — states: listed-under-company
+    dataNeeds:  at least one vendor facilitator record exists in the system
+                                                          <-- grounds nothing
+    dataNeeds:  vendor facilitators listed under a company
+                                                          <-- grounds
+
+If the state you need genuinely is not among them, propose it as a new state on
+that same entity — do not invent a second entity for it, and do not reword the
+existing one.
+
 # Entities and states
 
 For each thing a test must **put into a particular state**, propose an entity
