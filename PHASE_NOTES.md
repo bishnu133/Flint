@@ -3587,3 +3587,54 @@ could bite again.
 
 Tests: 1163 across 77 files (+6). Gates from here: build, **typecheck**, lint,
 test.
+
+### B3.1 — The dialect seam does not fit, and the phrase builder (2026-08-18)
+
+B2.5 is done. `flint kb` on HPBPPH-17236 reads **all 3 declared data need(s) are
+grounded**, no gaps, nothing awaiting review — roles bound to a real credential
+getter, and the facilitator precondition recorded as an environment assumption
+with the reason attached. JIRA card in, grounded feature spec out.
+
+**A correction to this plan before building on it.** BUBBLEGUM_PLAN says adding
+the dialect is "a config change rather than a second emitter". That is wrong.
+The `Dialect` interface from Phase 4 is `emitPageObject(PageObjectSpec)` +
+`emitSpec(SpecFileSpec)`, and `PageObjectSpec` is locators and verified
+selectors all the way down. Bubblegum has no page objects, no locators and no
+selectors; there is nothing for it to implement. Widening the interface to a
+union, or generalising it to an intermediate both dialects share, would mean
+rewriting the frozen Phase 4 dialect — so Bubblegum gets its own emit path under
+`src/generator/bubblegum/`, and `resolveDialect`'s `bubblegum` case (a
+placeholder that has always read "lands in Phase 6") is the designated wiring
+point. New files, no frozen ones touched.
+
+**`phrase.ts` — a plan step, said out loud.** Pure, table-driven, and the thing
+everything else in B3 rests on.
+
+Three decisions worth recording:
+
+- **The house style is observed, not invented.** The forms come from the target
+  suite's own flows as read by the manifest — `Enter "${credentials.username}"
+  into Username`, `Click Sign In`. A generator writing `Type the username into
+  the Username field` would be correct English in a second dialect, sitting
+  beside the first in one repository forever.
+- **What can be checked exactly is not sent to a resolver.** `goto` and `url`
+  assertions emit as native Playwright. Routing a string comparison through a
+  natural-language engine trades a deterministic assertion for a probabilistic
+  one and bills per token for the downgrade.
+- **"Ground before you generate" moves to labels.** In `playwright-pom` the
+  model may not invent a selector; here it may not invent an element name. A
+  sentence naming a control that does not exist compiles, imports nothing wrong,
+  and fails in CI as a resolver timeout — the worst place to find out. Every
+  phrase is built from an `Element` the explorer captured, and three cases are
+  refused outright: an unknown `elementRef`, a step naming no element, and an
+  element with no accessible name, text or test id. That last is a real answer,
+  not a defect: an icon button with no label cannot be addressed in English, and
+  emitting a sentence anyway resolves to whatever is nearby.
+
+`Element.inDialog` is consumed exactly where it was approved for: `Click Save`
+on an ordinary page, `Click Save in dialog` when a modal is open.
+
+Tests: 23 new, table-driven. Build, typecheck and lint clean.
+
+Next in B3: the emitter (TestPlan -> `.flow.ts` / `.data.ts` / `.test.mts`,
+reusing every flow the manifest already has), then the `preflight()` gate.
