@@ -124,6 +124,25 @@ describe('the data file', () => {
   });
 });
 
+describe('the run command in the header', () => {
+  // Not decoration: it is the command somebody copies. The first generated file
+  // said `npx tsx src/smart-tests/tests/x.test.mts` for a suite four
+  // directories further in, and the copied command failed with
+  // ERR_MODULE_NOT_FOUND.
+  it('names the path the file is actually written to', () => {
+    const [, , test] = renderSuite(SUITE, { suiteDir: 'packages/web-tests/src/smart-tests' });
+    expect(test!.contents).toContain(
+      'Run:  npx tsx packages/web-tests/src/smart-tests/tests/vendor-admin-view-facilitators.test.mts',
+    );
+  });
+
+  it('falls back to the suite-relative path when no root is given', () => {
+    expect(render().test.contents).toContain(
+      'Run:  npx tsx tests/vendor-admin-view-facilitators.test.mts',
+    );
+  });
+});
+
 describe('the test file', () => {
   it('is a script, not a Playwright spec', () => {
     // `npx tsx tests/X.test.mts` with a main(). There is no test(), no

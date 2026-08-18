@@ -41,10 +41,29 @@ export interface RenderedFile {
 /** Where each layer lives, matching the four-layer directory the suite uses. */
 const DIRS = { flows: 'flows', data: 'data', tests: 'tests' } as const;
 
-export function renderSuite(suite: BubblegumSuite): RenderedFile[] {
+export interface RenderOptions {
+  /**
+   * The suite root relative to the project, e.g.
+   * `packages/web-tests/src/smart-tests`.
+   *
+   * Only the `Run:` line in the header needs it, and that line is not
+   * decoration — it is the command somebody copies. Hardcoding the shape from
+   * one project's file printed
+   * `npx tsx src/smart-tests/tests/x.test.mts` for a suite that actually lives
+   * four directories further in, and the copied command failed with
+   * ERR_MODULE_NOT_FOUND. A path in a comment is as wrong as a path in an
+   * import; it just fails later and looks like the reader's mistake.
+   */
+  suiteDir?: string;
+}
+
+export function renderSuite(suite: BubblegumSuite, options: RenderOptions = {}): RenderedFile[] {
   const files: RenderedFile[] = [
     { path: `${DIRS.flows}/${suite.featureId}.flow.ts`, contents: renderFlowFile(suite) },
-    { path: `${DIRS.tests}/${suite.featureId}.test.mts`, contents: renderTestFile(suite) },
+    {
+      path: `${DIRS.tests}/${suite.featureId}.test.mts`,
+      contents: renderTestFile(suite, options.suiteDir),
+    },
   ];
   const data = renderDataFile(suite);
   if (data !== undefined) {
@@ -194,7 +213,8 @@ function actArgument(
 
 // ---------------------------------------------------------------- test layer
 
-function renderTestFile(suite: BubblegumSuite): string {
+function renderTestFile(suite: BubblegumSuite, suiteDir?: string): string {
+  const runPath = `${suiteDir === undefined ? '' : `${suiteDir}/`}${DIRS.tests}/${suite.featureId}.test.mts`;
   const flowImports = new Map<string, Set<string>>();
   const getterImports = new Map<string, Set<string>>();
 
@@ -217,8 +237,8 @@ function renderTestFile(suite: BubblegumSuite): string {
     '/**',
     ` * ${suite.title}`,
     ' *',
-    ` * Run:  npx tsx src/smart-tests/tests/${suite.featureId}.test.mts`,
-    ` * Debug: HEADLESS=false ENV=CCSIT npx tsx src/smart-tests/tests/${suite.featureId}.test.mts`,
+    ` * Run:  npx tsx ${runPath}`,
+    ` * Debug: HEADLESS=false ENV=CCSIT npx tsx ${runPath}`,
     ' */',
     '',
     '// --- Load env FIRST, before any module that reads process.env at load time ---',

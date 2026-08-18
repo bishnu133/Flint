@@ -116,7 +116,7 @@ async function runBubblegum(feature: string | undefined, opts: BubblegumOptions)
       dataNeedsGrounded,
     });
 
-    for (const file of renderSuite(suite)) {
+    for (const file of renderSuite(suite, { suiteDir: config.suiteDir })) {
       const target = join(config.suiteDir, file.path);
       const outcome = place(projectRoot, target, file);
       if (opts.print) {

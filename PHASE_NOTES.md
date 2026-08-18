@@ -3851,3 +3851,27 @@ still something the resolver can find. The app-side fix (an `aria-label` on
 those controls) is the real answer and is the operator's call.
 
 Tests: 74 across the bubblegum files. Build, typecheck, lint clean.
+
+### B3.6 — A path in a comment is as wrong as a path in an import (2026-08-18)
+
+The prerequisite fix landed: **5 live, 2 not runnable**, the empty flows gone,
+the repeated note said once. The generated file is what it should be.
+
+Then the run command failed with `ERR_MODULE_NOT_FOUND`. The header said
+
+    Run:  npx tsx src/smart-tests/tests/vendor-admin-view-facilitators.test.mts
+
+copied verbatim from the sample file, where it is correct because that project's
+tests are run from `packages/web-tests`. Flint writes into
+`packages/web-tests/src/smart-tests` from the project root, so the copied command
+pointed at nothing.
+
+Worth its own entry because of the failure shape rather than the size of the fix.
+Every path in the generated code is checked — imports resolve, the credential
+getter is in the manifest, the flow is a real export. The one path nobody checked
+was in a comment, and a comment is exactly where a wrong path survives review:
+it looks like documentation, it fails later, and it fails looking like the
+reader's mistake. The `Run:` line is now derived from `config.suiteDir`, the same
+value that decides where the file is written.
+
+Tests: 76 across the bubblegum files. Build, typecheck, lint clean.
