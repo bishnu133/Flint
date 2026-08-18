@@ -516,3 +516,22 @@ describe('credential getters that break the naming convention', () => {
     expect(scan(['packages/data']).credentials).toEqual([]);
   });
 });
+
+describe('the scan remembers where it looked', () => {
+  // `--root packages/utilities --root packages/data` was the difference between
+  // 25 credential getters and zero on the real BAP suite. A flag that has to be
+  // retyped on every command is a flag somebody eventually omits, and the run
+  // that omits it does not fail — it writes a manifest missing everything the
+  // planner needs.
+  it('records the extra roots it was given, sorted', () => {
+    write('packages/data/BAP.ts', `export function getAdminCredentials() { return { username: 'a', password: 'b' }; }`);
+    expect(scan(['packages/utilities', 'packages/data']).roots).toEqual([
+      'packages/data',
+      'packages/utilities',
+    ]);
+  });
+
+  it('records an empty list when it was given none', () => {
+    expect(scan([]).roots).toEqual([]);
+  });
+});

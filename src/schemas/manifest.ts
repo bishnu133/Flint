@@ -148,6 +148,20 @@ export const SuiteManifestSchema = z
     generatedAt: z.string().min(1),
     /** Suite root the scan covered, relative to the project root. */
     suiteDir: z.string(),
+    /**
+     * Extra directories the scan covered beyond `suiteDir` — the `--root`
+     * values, remembered.
+     *
+     * In a monorepo the credentials and repositories live outside the suite:
+     * on a real project, `--root packages/utilities --root packages/data` is
+     * the difference between 25 credential getters and **zero**. A flag that
+     * has to be retyped on every command is a flag somebody eventually omits,
+     * and the run that omits it does not fail — it quietly produces a manifest
+     * missing everything the planner needs, and the model invents getter names
+     * to fill the hole. Recording them here makes `--root` a one-time setup
+     * step rather than a thing to remember forever.
+     */
+    roots: z.array(z.string()).default([]),
     flows: z.array(FlowEntrySchema),
     data: z.array(DataEntrySchema),
     helpers: z.array(HelperEntrySchema),

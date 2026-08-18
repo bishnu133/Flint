@@ -28,6 +28,7 @@ const MANIFEST: SuiteManifest = {
   version: 1,
   generatedAt: '2026-08-17T00:00:00.000Z',
   suiteDir: 'e2e',
+  roots: [],
   flows: [
     {
       id: 'login.loginFlow',
@@ -71,6 +72,16 @@ describe('writeManifest / readManifest', () => {
   it('round-trips', () => {
     writeManifest(root, MANIFEST);
     expect(readManifest(root)).toEqual(MANIFEST);
+  });
+
+  it('reads a manifest written before `roots` existed', () => {
+    // Every project with a manifest already on disk has one of these. It must
+    // read as "no extra roots recorded" rather than failing, so the first
+    // command after an upgrade still works and simply asks for --root again.
+    const { roots: _roots, ...older } = MANIFEST;
+    mkdirSync(dirname(manifestPath(root)), { recursive: true });
+    writeFileSync(manifestPath(root), JSON.stringify(older), 'utf8');
+    expect(readManifest(root).roots).toEqual([]);
   });
 
   it('names the command to run when there is no manifest', () => {

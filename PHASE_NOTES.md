@@ -3453,3 +3453,52 @@ exists, the name is not the model's to choose. The prompt now says so, with
 this exact pair as the worked example.
 
 Tests: 1142 across 76 files (+3).
+
+### B2.5.8 — `--root` was the whole story, and it was a flag nobody could see (2026-08-18)
+
+The empty credential list from B2.5.7 was not a detection failure:
+
+```
+pnpm cli manifest --root packages/utilities --root packages/data --json
+  -> { "creds": 25, "repos": 24 }
+```
+
+25 getters, found by the existing `get…Credentials` convention. The return-type
+signal added in B2.5.7 was not what fixed it — it is a reasonable belt-and-braces
+addition and it should stay, but the honest account is that `readCredentials`
+only ever looked at `suiteDir` plus `--root`, and the getters live in
+`packages/data`. Every earlier run had simply never been told where to look.
+
+That is the bug worth fixing, and it is a design bug rather than a scanning one.
+`--root` had to be retyped on every invocation, and the run that omits it does
+not fail. It writes a smaller manifest, prints a cheerful summary, and the only
+evidence is a count nobody remembers from yesterday. Downstream the damage is
+total and silent: with `credentials` empty, `describeSuite` omits the section
+entirely, so the model invents getter names that look exactly like real ones —
+which is how this survived four drafts.
+
+Two changes:
+
+- **The manifest remembers its roots.** `SuiteManifest` gains
+  `roots: string[]`, populated by the scan and reused by `flint manifest` when
+  `--root` is absent; passing the flag replaces them. `--root` becomes a
+  one-time setup step. The summary says which roots were used and whether they
+  were remembered, so the reused case is visible rather than magic.
+- **A narrower scan says so.** `shrinkage()` compares the new manifest against
+  the one already on disk and names every category that went down, with both
+  numbers: `credentials 25 -> 0`. Not an error — a suite really can shrink — but
+  it is the only cheap place to notice, and "nothing downstream will complain"
+  is stated outright in the message, because that is precisely what happened
+  here.
+
+The general lesson, which this project keeps re-learning in new costumes: **a
+stage that silently degrades is worse than one that fails.** B2.5.4 was the same
+shape (a draft that grounds nothing still writes four plausible files), and so
+was the "absent input produces a well-formed empty result" note three entries
+above. The fix is always the same — make the degraded case visibly different
+from the healthy one at the moment it happens.
+
+Tests: 1149 across 77 files (+7), including a read of a manifest written
+before `roots` existed — every project with one on disk has that shape, and it
+has to read as "no roots recorded" rather than failing on the first command
+after an upgrade.

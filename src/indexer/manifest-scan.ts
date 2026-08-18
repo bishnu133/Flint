@@ -118,6 +118,9 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
     version: 1,
     generatedAt: new Date().toISOString(),
     suiteDir: options.suiteDir,
+    // Remembered so the next command does not have to be told again. Sorted
+    // with everything else, because the manifest is diffed.
+    roots: [...(options.extraRoots ?? [])].sort(),
     // Stable ordering throughout: the manifest is written to disk and diffed,
     // and it feeds a cached prompt. Order drift would invalidate both.
     flows: flows.sort(byId),
