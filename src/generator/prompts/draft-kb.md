@@ -169,9 +169,20 @@ written out as a TODO nobody can close.
   **Do not invent a method name that is not in the listing.** An invented name
   is written out as an unresolved TODO, which is fine; a plausible wrong one
   that happens to match nothing real is the same outcome with more noise.
+- `environmentNote` when the state is **already true** and a test just reads it:
+  reference data, seeded accounts, records that exist in every environment.
+  "Facilitator records are seeded in the test environment" is a precondition
+  somebody already satisfied — the test asserts against them and creates
+  nothing.
 - `unreachableReason` when the document itself says a state cannot be produced
   by a test — "only set by the mobile app", "requires a hardware sync". Say so
   plainly. It is a real answer.
+
+Do not confuse the last two. They read alike and mean opposites: an
+`environmentNote` state is fine and the feature runs; an `unreachableReason`
+state blocks the feature until somebody builds a setup path. "No insert method
+exists, so the test relies on pre-seeded data" is **`environmentNote`** — the
+missing method is why no setup is generated, not a reason the test cannot run.
 
 # Roles
 

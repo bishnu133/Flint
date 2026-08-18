@@ -3550,3 +3550,40 @@ first, third and fourth.
 Cost note: 19,919 in / 5,056 out, up from 12,847 / 4,054. Expected — the suite
 listing now carries 25 credentials and 24 repositories with their methods, and
 the existing-KB section is no longer empty. Worth watching, not worth acting on.
+
+### B2.5.10 — `unreachable` was doing two jobs with opposite consequences (2026-08-18)
+
+After the `.draft.md` fix the report is honest: **4 grounded, 2 gaps across 2
+features**, both gaps the same one thing. And that one thing turned out to be a
+modelling defect rather than a missing fact.
+
+The suite has no method that creates vendor facilitators. The records are seeded
+in CCSIT and a test reads them. Written into the KB that came out as:
+
+```yaml
+listed:
+  unreachable: No data-access method or flow exists in this suite to create
+    facilitator records; test relies on pre-seeded facilitator data
+```
+
+Read the sentence: the first half is why no setup code is generated, and the
+second half says the precondition is *already satisfied*. But `unreachable` is
+blocking — `isBlocking()` treats `unreachable-state` as a stop — so a feature
+that runs perfectly well was reported as un-runnable. The field was carrying
+"no test can ever produce this" and "it is already there, don't create it" in
+the same word, and those have opposite consequences.
+
+`StateSetup` gains `environment: string` — the state is already true in the
+target environment, say how you know. It grounds, generates no setup code, and
+is reported in the grounded list as `via the environment — <reason>` rather than
+silently, so a cleared seed database has its explanation waiting instead of
+producing a mystery failure months later.
+
+The draft side gains `environmentNote` to match, and the prompt spells out the
+distinction with this exact sentence as the worked example, because the two
+readings are genuinely easy to confuse and the model confused them. Keeping the
+two halves in the same vocabulary is the lesson from B2.5.4 applied before it
+could bite again.
+
+Tests: 1163 across 77 files (+6). Gates from here: build, **typecheck**, lint,
+test.

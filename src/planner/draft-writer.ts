@@ -150,6 +150,8 @@ function renderEntity(entity: DraftEntity, resolutions: Resolution[], source: st
 
     if (state.unreachableReason !== undefined) {
       entry['unreachable'] = state.unreachableReason;
+    } else if (state.environmentNote !== undefined) {
+      entry['environment'] = state.environmentNote;
     } else if (resolution?.kind === 'repository' && resolution.reference !== undefined) {
       entry['repository'] = resolution.reference;
     } else if (resolution?.kind === 'flow' && resolution.reference !== undefined) {

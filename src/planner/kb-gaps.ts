@@ -135,6 +135,20 @@ export function checkKbGaps(input: GapCheckInput): GapReport {
 
     const setup = match.states[state]!;
 
+    if (setup.environment !== undefined) {
+      // Grounded, not a gap: somebody has already put this state into the
+      // environment and the test reads it. No setup code is generated, and the
+      // assumption is visible in the report so a cleared seed database has an
+      // explanation waiting rather than a mystery failure.
+      grounded.push({
+        need,
+        entity: match.entity,
+        state,
+        via: `the environment — ${setup.environment}`,
+      });
+      continue;
+    }
+
     if (setup.unreachable !== undefined) {
       // Not a documentation gap — a documented dead end, which is exactly what
       // the field is for. Still reported, because a plan built on it will not
@@ -363,6 +377,7 @@ function describeSetup(setup: StateSetup): string {
   if (setup.repository !== undefined) return setup.repository;
   if (setup.flow !== undefined) return `flow ${setup.flow}`;
   if (setup.api !== undefined) return `api ${setup.api}`;
+  if (setup.environment !== undefined) return 'the environment';
   return 'unspecified';
 }
 

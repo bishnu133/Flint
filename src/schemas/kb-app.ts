@@ -41,6 +41,22 @@ export const StateSetupSchema = z
     /** A service call, for state neither the DB nor the UI can set. */
     api: z.string().min(1).optional(),
     /**
+     * This state is already true in the target environment. Say how you know.
+     *
+     * The field exists because `unreachable` was doing two jobs and they have
+     * opposite consequences. "No test can produce facilitator records — there is
+     * no insert method" and "facilitator records are seeded in CCSIT, a test
+     * reads them" were both being written as `unreachable`, and the second one
+     * blocked a feature that runs perfectly well. One is a dead end; the other
+     * is a precondition somebody already satisfied.
+     *
+     * A state grounded this way generates no setup code. It is a standing
+     * assumption about the environment, so it is reported alongside the
+     * grounded needs rather than silently — if the seed data is ever cleared,
+     * this line is where the failure will be explained.
+     */
+    environment: z.string().min(1).optional(),
+    /**
      * Why this state cannot be reached by a test, in plain words.
      *
      * Recording an honest dead end is the point of the field. Left blank, the
@@ -58,8 +74,9 @@ export const StateSetupSchema = z
       s.repository !== undefined ||
       s.flow !== undefined ||
       s.api !== undefined ||
+      s.environment !== undefined ||
       s.unreachable !== undefined,
-    { message: 'a state needs one of: repository, flow, api, or unreachable' },
+    { message: 'a state needs one of: repository, flow, api, environment, or unreachable' },
   );
 export type StateSetup = z.infer<typeof StateSetupSchema>;
 

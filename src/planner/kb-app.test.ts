@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readAppKnowledge } from './kb-app.js';
 import { formatGapReport, gapSummary } from './kb-report.js';
-import { EMPTY_KNOWLEDGE } from '../schemas/kb-app.js';
+import { EMPTY_KNOWLEDGE, StateSetupSchema } from '../schemas/kb-app.js';
 
 /**
  * Every read here is forgiving by design. This knowledge is written by people,
@@ -64,7 +64,7 @@ describe('entities', () => {
     write('kb/app/entities/x.md', '---\nstates:\n  vague:\n    note: hmm\n---');
     const knowledge = read();
     expect(knowledge.entities).toEqual([]);
-    expect(knowledge.warnings[0]!.message).toMatch(/repository, flow, api, or unreachable/);
+    expect(knowledge.warnings[0]!.message).toMatch(/repository, flow, api, environment, or unreachable/);
   });
 
   it('skips `_`-prefixed files, matching the convention elsewhere', () => {
@@ -172,5 +172,26 @@ describe('a credential Flint guessed is reported until somebody confirms it', ()
     };
     expect(formatGapReport([], confirmed)).not.toContain('Waiting on you');
     expect(gapSummary([], confirmed).needsReview).toEqual([]);
+  });
+});
+
+describe('a state the environment already provides', () => {
+  /**
+   * `unreachable` was doing two jobs with opposite consequences. "No insert
+   * method exists, so nobody can create facilitator records" and "facilitator
+   * records are seeded in CCSIT and the test reads them" were both written as
+   * `unreachable`, and the second blocked a feature that runs perfectly well.
+   */
+  it('is accepted as a setup path', () => {
+    const parsed = StateSetupSchema.safeParse({
+      environment: 'Facilitator records are seeded in every test environment.',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it('still rejects a state that says nothing at all', () => {
+    const parsed = StateSetupSchema.safeParse({ note: 'someday' });
+    expect(parsed.success).toBe(false);
+    expect(JSON.stringify(parsed)).toContain('environment');
   });
 });

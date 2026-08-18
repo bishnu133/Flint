@@ -417,3 +417,47 @@ describe('roles as a data need', () => {
     expect(report.gaps[0]!.candidates).toContain('role:customerCare');
   });
 });
+
+describe('an environment-provided state grounds rather than blocks', () => {
+  // The live case: no repository method creates vendor facilitators, and the
+  // records are seeded in CCSIT. Recorded as `unreachable` that blocked a
+  // feature which runs; recorded as `environment` it is a satisfied
+  // precondition, reported so a cleared seed database has an explanation.
+  const knowledge = {
+    ...EMPTY_KNOWLEDGE,
+    entities: [
+      {
+        entity: 'vendor-facilitator',
+        aliases: ['vendor facilitators'],
+        states: { listed: { environment: 'Seeded in every test environment.' } },
+      },
+    ],
+  };
+  const need = spec(['vendor facilitators listed in the system']);
+
+  it('counts as grounded', () => {
+    const report = checkKbGaps({ spec: need, knowledge, manifest: MANIFEST });
+    expect(report.gaps).toEqual([]);
+    expect(report.grounded).toHaveLength(1);
+  });
+
+  it('says the environment is what grounds it, and why', () => {
+    const [item] = checkKbGaps({ spec: need, knowledge, manifest: MANIFEST }).grounded;
+    expect(item!.via).toContain('the environment');
+    expect(item!.via).toContain('Seeded in every test environment.');
+  });
+
+  it('still blocks when the state is a genuine dead end', () => {
+    const blocked = {
+      ...knowledge,
+      entities: [
+        {
+          ...knowledge.entities[0]!,
+          states: { listed: { unreachable: 'only the mobile app can create these' } },
+        },
+      ],
+    };
+    const report = checkKbGaps({ spec: need, knowledge: blocked, manifest: MANIFEST });
+    expect(report.gaps.map((g) => g.kind)).toEqual(['unreachable-state']);
+  });
+});

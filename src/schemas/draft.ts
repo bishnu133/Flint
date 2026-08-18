@@ -29,6 +29,16 @@ export const DraftStateSchema = z
      * is written out as a TODO rather than as a working reference.
      */
     setupHint: z.string().min(1).optional(),
+    /**
+     * The state is already true in the environment, and the test reads it.
+     *
+     * Distinct from `unreachableReason`, which blocks the feature. "Facilitator
+     * records are seeded in the test environment" is a satisfied precondition;
+     * "no insert method exists so nobody can create them" is a dead end. They
+     * were being written as the same thing, and the second one blocked a
+     * feature that runs.
+     */
+    environmentNote: z.string().min(1).optional(),
     /** Why no test can reach this state, when the document says so. */
     unreachableReason: z.string().min(1).optional(),
     note: z.string().min(1).optional(),
