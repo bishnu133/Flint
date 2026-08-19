@@ -146,7 +146,11 @@ function renderFlowFile(suite: BubblegumSuite): string {
     ' */',
     "import type { Page } from '@playwright/test';",
     "import type { Bubblegum } from '@bubblegum-ai/node';",
-    "import { act } from '../helpers/actions';",
+    // `getRunConsole` is how the suite's own flows label a group of steps in the
+    // run output. Worth copying: the console banner and the HTML report both key
+    // off it, so a generated flow without sections reads as one undifferentiated
+    // list next to hand-written ones that do not.
+    "import { act, getRunConsole } from '../helpers/actions';",
   ];
   if (usesData) {
     lines.push(`import { ${dataConstName(suite.featureId)} } from '../data/${suite.featureId}.data';`);
@@ -185,6 +189,7 @@ function renderFlow(
     ` * Generated for plan case \`${flow.caseId}\`.`,
     ' */',
     `export async function ${flow.name}(engine: Bubblegum, page: Page): Promise<void> {`,
+    `  getRunConsole()?.section(${quote(flow.summary)});`,
     ...body,
     "  await page.waitForLoadState('domcontentloaded');",
     '}',

@@ -1,4 +1,4 @@
-<!-- version: 3 -->
+<!-- version: 4 -->
 
 <!--
 Stage A — turn a feature spec plus a grounded Screen Model into a TestPlan.
@@ -74,11 +74,40 @@ fails tells a human something, and a test that never runs tells them nothing.
 
 - Cover every acceptance criterion. Cite them in `acceptanceRefs` using the
   `AC1`, `AC2`… ids shown in the spec.
+- **Cover the whole criterion, not its first clause.** An acceptance criterion
+  joined by `AND` is one requirement with several observable outcomes, and a
+  case that checks the first and stops has covered it on paper only. "They can
+  see the Facilitators tab AND the listing opens AND search and filter work AND
+  clicking a row does not navigate AND Download as CSV is visible AND Add is
+  not" is six assertions. Write six. Split them across cases when their
+  preconditions differ, keep them together when they do not — but do not lose
+  them.
+- **A clause you cannot check is a question, not a silence.** If the Screen
+  Model has no element for part of a criterion, say so in `openQuestions` and
+  name the clause. Dropping it reads exactly like deciding it did not matter.
 - Include the negative and edge cases the spec explicitly lists.
 - If the spec is ambiguous about something you would otherwise have to guess,
   put the question in `openQuestions` rather than inventing an answer. This
   matters most for `p0` cases — a confidently wrong p0 test is worse than a
   question.
+
+# What the suite already has
+
+When a "What this suite can already do" section appears above, read it before
+planning anything.
+
+- **Do not re-describe a journey it already performs.** If a flow logs in,
+  navigates to a screen or creates a record, the steps for that are already
+  written; plan the part that is new. Naming the flow's own phrasing in a
+  `note` is how you point at it.
+- **It also tells you what this suite can assert.** The `says:` lines under each
+  flow are the sentences its tests actually use, and they are usually richer
+  than "is visible" — a suite that says `in the row where Name is "X", Status is
+  "Reviewing"` can check a row's contents, so a case that only checks a heading
+  appeared is weaker than the suite is capable of.
+- **Never name something that is not listed there.** A flow, getter or method
+  you invent produces code that compiles, imports nothing that exists, and fails
+  at run time. The same rule as element ids, applied to everything else.
 
 # Steps
 

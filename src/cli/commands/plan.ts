@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Command } from 'commander';
 import { loadConfig } from '../../config/load.js';
+import { tryReadManifest } from '../../indexer/manifest-store.js';
 import { createLogger } from '../../shared/logger.js';
 import { FlintError } from '../../shared/errors.js';
 import { dirSuffix } from '../hints.js';
@@ -112,6 +113,10 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
   }
 
   const conventions = readConventions(projectRoot, config.kbDir);
+  // Read, never scanned here: `flint manifest` writes it with the `--root`
+  // values it remembers, and a narrower rescan would silently hand the planner
+  // less than the operator has already seen.
+  const manifest = tryReadManifest(projectRoot);
   const provider = new AnthropicProvider({ logger, logPrompts: config.debug.logPrompts });
 
   const result = await generatePlan({
@@ -123,6 +128,9 @@ async function runPlan(feature: string | undefined, opts: PlanOptions): Promise<
     logger,
     ...(index !== undefined ? { index } : {}),
     ...(conventions !== undefined ? { conventions } : {}),
+    // What the suite can already do. Without it the planner writes visibility
+    // checks and nothing else, because that is all it has been shown.
+    ...(manifest !== undefined ? { manifest } : {}),
     exemplars: readExemplars(projectRoot, config.suiteDir, index, owned),
   });
 

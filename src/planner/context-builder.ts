@@ -2,6 +2,7 @@ import type { ScreenModel, Element, Page } from '../schemas/screen-model.js';
 import type { SuiteIndex } from '../schemas/suite-index.js';
 import { pickBest } from '../explorer/selector-ranker.js';
 import type { FeatureSpec } from './feature-spec.js';
+import type { SuiteManifest } from '../schemas/manifest.js';
 import { matchPages, type PageMatch } from './page-matcher.js';
 
 /**
@@ -30,6 +31,22 @@ export interface BuildContextOptions {
   index?: SuiteIndex;
   /** House conventions (`kb/conventions.md`), verbatim. */
   conventions?: string;
+  /**
+   * What the target suite can already do (Bubblegum B1).
+   *
+   * Added 2026-08-18, with approval to change this Phase 3 file. Without it the
+   * planner writes `visible` checks on element ids and nothing else, because
+   * that is all it has ever been shown — it cannot know the suite has a
+   * `navigateToActivities` flow, that credentials come from a getter, or that
+   * its own tests assert `in the row where Name is "X", Status is "Reviewing"`.
+   * A live plan against a real portal covered six acceptance criteria with six
+   * visibility checks for exactly this reason.
+   *
+   * Ranked above conventions when the budget bites: a convention the planner
+   * cannot follow because it does not know the vocabulary is worth less than
+   * the vocabulary.
+   */
+  manifest?: SuiteManifest;
   /** One or two existing spec files that show the house style. */
   exemplars?: ExemplarFile[];
   /** Hard ceiling, from `config.tokenBudgets.plan`. */
@@ -82,6 +99,10 @@ export function buildContext(options: BuildContextOptions): BuiltContext {
       name: 'conventions',
       render: () => renderConventions(options.conventions),
     },
+    {
+      name: 'suite manifest',
+      render: () => (options.manifest === undefined ? '' : renderManifest(options.manifest)),
+    },
   ];
 
   // Start with everything, then drop optional sections, then trim pages.
@@ -92,6 +113,7 @@ export function buildContext(options: BuildContextOptions): BuiltContext {
     [
       specSection,
       renderPages(includedPages),
+      included.get('suite manifest') ?? '',
       included.get('conventions') ?? '',
       included.get('suite index') ?? '',
       included.get('exemplars') ?? '',
@@ -123,6 +145,60 @@ export function buildContext(options: BuildContextOptions): BuiltContext {
     dropped,
     estimatedTokens: estimateTokens(text),
   };
+}
+
+/**
+ * What the suite can already do, as the planner needs to see it.
+ *
+ * Names and summaries, plus a couple of each flow's recorded phrases. The
+ * phrases are the point: they are how the suite says things, and a planner that
+ * has read `in the row where Name is "X", Status is "Reviewing"` can write a
+ * case that checks a row rather than one that checks a heading is visible.
+ *
+ * Method bodies are deliberately absent. The planner is deciding what a test
+ * should do, not writing the code, and a full listing would cost tokens to make
+ * the decision harder.
+ */
+function renderManifest(manifest: SuiteManifest): string {
+  const lines = ['## What this suite can already do', ''];
+
+  if (manifest.flows.length > 0) {
+    lines.push(
+      'Reuse these rather than describing their steps again. Name them exactly.',
+      '',
+    );
+    for (const flow of manifest.flows) {
+      lines.push(`- \`${flow.id}\` (${flow.kind}) — ${flow.summary ?? 'no description'}`);
+      for (const phrase of flow.phrases.slice(0, 2)) lines.push(`    says: ${phrase}`);
+    }
+    lines.push('');
+  }
+
+  if (manifest.credentials.length > 0) {
+    lines.push('Accounts it can log in as:', '');
+    for (const credential of manifest.credentials) {
+      lines.push(`- \`${credential.getter}\`${credential.role === undefined ? '' : ` — ${credential.role}`}`);
+    }
+    lines.push('');
+  }
+
+  if (manifest.repositories.length > 0) {
+    lines.push('Data it can set up or tear down directly:', '');
+    for (const repository of manifest.repositories) {
+      const usable = repository.methods.filter((method) => method !== 'getInstance');
+      if (usable.length === 0) continue;
+      lines.push(`- \`${repository.className}\`: ${usable.map((m) => `\`${m}\``).join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  if (manifest.constants.length > 0) {
+    lines.push('Constants the suite uses instead of literals:', '');
+    for (const constant of manifest.constants) lines.push(`- \`${constant.name}\``);
+    lines.push('');
+  }
+
+  return lines.join('\n').trimEnd();
 }
 
 /** Elements Phase 4 could actually emit — the rest are noise to the planner. */

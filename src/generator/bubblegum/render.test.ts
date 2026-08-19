@@ -97,7 +97,18 @@ describe('the four-layer layout', () => {
 
 describe('the flow file', () => {
   it('imports act from the helper the suite actually has', () => {
-    expect(render().flow.contents).toContain("import { act } from '../helpers/actions';");
+    expect(render().flow.contents).toContain(
+      "import { act, getRunConsole } from '../helpers/actions';",
+    );
+  });
+
+  it('labels the steps with a section, the way the suite does', () => {
+    // The console banner and the HTML report both key off it, so a generated
+    // flow without sections reads as one undifferentiated list beside
+    // hand-written ones that group their steps.
+    expect(render().flow.contents).toContain(
+      "getRunConsole()?.section('Vendor Admin opens the Facilitator listing');",
+    );
   });
 
   it('types the parameters the way every flow in the suite does', () => {

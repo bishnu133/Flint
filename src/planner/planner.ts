@@ -9,6 +9,7 @@ import { silentLogger, type Logger } from '../shared/logger.js';
 import { formatZodError } from '../shared/zod-format.js';
 import type { FeatureSpec } from './feature-spec.js';
 import { buildContext, type ExemplarFile } from './context-builder.js';
+import type { SuiteManifest } from '../schemas/manifest.js';
 import {
   applyDuplicateDetection,
   checkElementRefs,
@@ -38,6 +39,8 @@ export interface PlanOptions {
   modelId: string;
   index?: SuiteIndex;
   conventions?: string;
+  /** What the suite can already do, so the planner reuses instead of inventing. */
+  manifest?: SuiteManifest;
   exemplars?: ExemplarFile[];
   /** `config.tokenBudgets.plan`. */
   tokenBudget: number;
@@ -68,6 +71,7 @@ export async function generatePlan(options: PlanOptions): Promise<PlanResult> {
     ...(options.index !== undefined ? { index: options.index } : {}),
     ...(options.conventions !== undefined ? { conventions: options.conventions } : {}),
     ...(options.exemplars !== undefined ? { exemplars: options.exemplars } : {}),
+    ...(options.manifest !== undefined ? { manifest: options.manifest } : {}),
   });
 
   if (context.dropped.length > 0) {

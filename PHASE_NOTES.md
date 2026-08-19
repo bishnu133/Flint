@@ -3943,3 +3943,61 @@ second, and this entry is the proof — the base URL bug is exactly the kind of
 rule that has to be enforced deterministically or not at all.
 
 Tests: 80 across the bubblegum files.
+
+### B3.8 — The planner can finally see the suite (2026-08-18)
+
+**Approved, and done: the manifest reaches Stage A.** `context-builder.ts` and
+`planner.ts` are Phase 3 files; the operator approved the change rather than my
+making it quietly.
+
+What the planner now reads, ranked *above* conventions when the budget bites —
+a convention it cannot follow because it does not know the vocabulary is worth
+less than the vocabulary:
+
+- every flow with its kind, summary and the first two phrases it actually says;
+- the credential getters, with their roles;
+- the repository methods, minus `getInstance`;
+- the URL constants.
+
+The `says:` lines are the point. A planner that has read
+`in the row where Name is "X", Status is "Reviewing"` can plan a case that checks
+a row's contents. Without them it writes `visible` on an element id, because
+that is the only thing it has ever been shown — which is exactly what the live
+plan did, covering six acceptance criteria with six visibility checks.
+
+**Prompt v4** adds two rules the same run earned:
+
+- *Cover the whole criterion, not its first clause.* An AC joined by `AND` is
+  one requirement with several observable outcomes. "Tab visible AND listing
+  opens AND search works AND clicking a row does not navigate AND CSV visible
+  AND Add absent" is six assertions; the plan wrote one and moved on.
+- *A clause you cannot check is a question, not a silence.* Dropping it reads
+  identically to deciding it did not matter.
+
+Plus a "What the suite already has" section: reuse rather than re-describe, and
+never name a flow, getter or method that is not listed — the element-id rule,
+applied to everything else.
+
+**From the helper files.** `getRunConsole()?.section(...)` is how the suite
+labels a group of steps; the console banner and the HTML report both key off it,
+so a generated flow without sections reads as one undifferentiated list beside
+hand-written ones. Generated flows now open with a section named after the case.
+
+**And an unplanned finding: `preflight` already exists.** `observe()` in
+`helpers/actions.ts` is `engine.act(phrase, { dry_run: true })` — it resolves an
+element and returns its ref without touching it. That is precisely the gate B3
+still owes, and it means the gate does not need designing, only wiring: run every
+emitted phrase through a dry-run act against the live app and report which
+resolve. Recorded here so the design is not reinvented.
+
+`templates/init/kb/conventions.md` scaffolds the file with a warning about what
+does *not* belong in it: structural rules are enforced by the emitter every
+time, a rule written in a prompt is followed on a good day. The base-URL bug in
+B3.7 is the evidence.
+
+**Still not approved, so not done:** extending `AssertionKind` beyond
+`visible|hidden|text|url|count|value|toast`. Until then the planner can be told
+about row assertions and still cannot express one, which caps how much the
+manifest context can buy.
+
+Tests: 552 across generator, cli, planner and indexer.
