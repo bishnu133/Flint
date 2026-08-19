@@ -67,6 +67,7 @@ const MANIFEST: SuiteManifest = {
       methods: ['deleteMVPA', 'getInstance'],
     },
   ],
+  constants: [],
   warnings: [],
 };
 

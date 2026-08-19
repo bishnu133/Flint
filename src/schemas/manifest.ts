@@ -141,6 +141,27 @@ export type RepositoryEntry = z.infer<typeof RepositoryEntrySchema>;
 
 export const ManifestWarningSchema = z.object({ file: z.string(), message: z.string() }).strict();
 
+/**
+ * An exported constant a generated file should use instead of a literal.
+ *
+ * Narrow on purpose: URLs. A live run hardcoded
+ * `https://pph-web-gateway-ccsit.../web/h365-portal` five times into a test,
+ * while the suite's own tests import `initialApplicationUri` from
+ * `utilities/constants/url` — which switches on `ENV`. The generated file was
+ * not merely off-style, it was pinned to one environment and would have run
+ * against CCSIT with `ENV=SIT` set.
+ */
+export const ConstantEntrySchema = z
+  .object({
+    name: z.string().min(1),
+    /** Path from the project root, for the import specifier. */
+    file: z.string().min(1),
+    /** The literal, when it is a plain string. Absent for computed values. */
+    value: z.string().optional(),
+  })
+  .strict();
+export type ConstantEntry = z.infer<typeof ConstantEntrySchema>;
+
 export const SuiteManifestSchema = z
   .object({
     /** Bumped when the scanner's output shape changes. */
@@ -167,6 +188,8 @@ export const SuiteManifestSchema = z
     helpers: z.array(HelperEntrySchema),
     credentials: z.array(CredentialEntrySchema),
     repositories: z.array(RepositoryEntrySchema),
+    /** Exported URL constants a generated file should use instead of a literal. */
+    constants: z.array(ConstantEntrySchema).default([]),
     /** Files that could not be parsed. A bad file never fails the scan. */
     warnings: z.array(ManifestWarningSchema),
   })

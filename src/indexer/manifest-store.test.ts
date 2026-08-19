@@ -58,6 +58,7 @@ const MANIFEST: SuiteManifest = {
   helpers: [],
   credentials: [],
   repositories: [],
+  constants: [],
   warnings: [],
 };
 

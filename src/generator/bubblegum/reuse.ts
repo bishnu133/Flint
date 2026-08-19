@@ -1,4 +1,4 @@
-import type { FlowEntry, SuiteManifest } from '../../schemas/manifest.js';
+import type { ConstantEntry, FlowEntry, SuiteManifest } from '../../schemas/manifest.js';
 import type { Phrase } from './phrase.js';
 
 /**
@@ -146,4 +146,42 @@ export function resolveAuth(
  */
 function isLogin(flow: FlowEntry): boolean {
   return /login|signin|sign-in|authenticate/i.test(flow.exportName);
+}
+
+/**
+ * The constant the suite already uses for the application's entry point.
+ *
+ * A live run hardcoded a full CCSIT URL five times into a generated test while
+ * the suite's own tests import `initialApplicationUri`, which switches on `ENV`.
+ * The generated file was not off-style, it was pinned to one environment: a
+ * `ENV=SIT` run would have driven CCSIT.
+ *
+ * Chosen by evidence where there is any, and by name only as a fallback:
+ *
+ * 1. A constant whose recorded literal is a prefix of the explored base URL.
+ *    That is proof — the scan read the value and the crawler visited it.
+ * 2. Failing that, a name that reads like an application entry point
+ *    (`initialApplicationUri`, `baseUrl`, `appUrl`), which is what an
+ *    env-switched constant looks like: computed, so no literal to compare.
+ * 3. Failing that, nothing. Several plausible URL constants and no way to tell
+ *    them apart is a choice, and a wrong base URL sends the whole suite to the
+ *    wrong environment — much worse than a literal that is merely inelegant.
+ */
+export function resolveBaseUrlConstant(
+  manifest: SuiteManifest,
+  exploredBaseUrl: string,
+): ConstantEntry | undefined {
+  const proven = manifest.constants.filter(
+    (entry) => entry.value !== undefined && exploredBaseUrl.startsWith(entry.value),
+  );
+  if (proven.length > 0) {
+    // Longest wins: `https://host/web/h365-portal` describes the app more
+    // precisely than `https://host`.
+    return [...proven].sort((a, b) => (b.value?.length ?? 0) - (a.value?.length ?? 0))[0];
+  }
+
+  const named = manifest.constants.filter((entry) =>
+    /^(initial)?(application|app|base|portal|site)[a-z0-9]*(url|uri)$/i.test(entry.name),
+  );
+  return named.length === 1 ? named[0] : undefined;
 }

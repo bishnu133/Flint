@@ -2,7 +2,7 @@ import type { FlowEntry, SuiteManifest } from '../../schemas/manifest.js';
 import type { ScreenModel } from '../../schemas/screen-model.js';
 import type { TestCase, TestPlan } from '../../schemas/test-plan.js';
 import { phraseFor, type Phrase } from './phrase.js';
-import { matchFlowPrefix, resolveAuth } from './reuse.js';
+import { matchFlowPrefix, resolveAuth, resolveBaseUrlConstant } from './reuse.js';
 
 /**
  * A TestPlan as a Bubblegum suite (B3).
@@ -77,6 +77,13 @@ export interface BubblegumSuite {
   featureId: string;
   title: string;
   baseUrl: string;
+  /**
+   * The suite's own constant for the app entry point, when one was identified.
+   *
+   * The emitted file imports and uses it instead of the literal, so a generated
+   * test follows `ENV` the way every hand-written one does.
+   */
+  baseUrlConstant?: { name: string; importPath: string };
   flows: BubblegumFlow[];
   tests: BubblegumTest[];
   /** Credential getters the tests import, deduped and sorted. */
@@ -150,10 +157,15 @@ export function buildSuite(options: BuildSuiteOptions): BubblegumSuite {
     tests.push(built.test);
   }
 
+  const baseConstant = resolveBaseUrlConstant(manifest, model.baseUrl);
+
   return {
     featureId: plan.featureId,
     title: options.title,
     baseUrl: model.baseUrl,
+    ...(baseConstant !== undefined
+      ? { baseUrlConstant: { name: baseConstant.name, importPath: baseConstant.file } }
+      : {}),
     flows,
     tests,
     credentialImports: [...getters]

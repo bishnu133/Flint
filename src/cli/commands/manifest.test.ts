@@ -22,6 +22,7 @@ const EMPTY: SuiteManifest = {
   helpers: [],
   credentials: [],
   repositories: [],
+  constants: [],
   warnings: [],
 };
 

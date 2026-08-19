@@ -229,6 +229,7 @@ function renderTestFile(suite: BubblegumSuite, suiteDir?: string): string {
     getterImports.set(from, (getterImports.get(from) ?? new Set()).add(getter));
   }
 
+  const base = suite.baseUrlConstant;
   const ownFlows = suite.tests
     .map((test) => test.flow)
     .filter((name): name is string => name !== undefined);
@@ -254,6 +255,9 @@ function renderTestFile(suite: BubblegumSuite, suiteDir?: string): string {
     "const { verify } = await import('../helpers/actions');",
   ];
 
+  if (base !== undefined) {
+    lines.push(`const { ${base.name} } = await import('${crossPackageSpecifier(base.importPath)}');`);
+  }
   for (const [from, names] of sorted(getterImports)) {
     lines.push(`const { ${[...names].sort().join(', ')} } = await import('${from}');`);
   }
@@ -275,12 +279,12 @@ function renderTestFile(suite: BubblegumSuite, suiteDir?: string): string {
     '    ctx = await initEngine();',
     '    const { page, engine } = ctx;',
     '',
-    `    await page.goto('${suite.baseUrl}', { waitUntil: 'networkidle', timeout: 30000 });`,
+    `    await page.goto(${gotoTarget(suite.baseUrl, suite)}, { waitUntil: 'networkidle', timeout: 30000 });`,
     '',
   );
 
   const seenNotes = new Set<string>();
-  for (const test of suite.tests) lines.push(...renderTest(test, seenNotes), '');
+  for (const test of suite.tests) lines.push(...renderTest(test, seenNotes, suite), '');
 
   lines.push(
     '  } catch (error) {',
@@ -299,10 +303,13 @@ function renderTestFile(suite: BubblegumSuite, suiteDir?: string): string {
   return lines.join('\n');
 }
 
-function renderTest(test: BubblegumTest, seenNotes: Set<string>): string[] {
+function renderTest(test: BubblegumTest, seenNotes: Set<string>, suite: BubblegumSuite): string[] {
   const body: string[] = [];
   for (const url of test.goto) {
-    body.push(`      await page.goto('${url}', { waitUntil: 'domcontentloaded' });`);
+    // The test already opened the app before the first case. Repeating that
+    // exact navigation inside a case adds a round trip and says nothing.
+    if (url.replace(/\/$/, '') === suite.baseUrl.replace(/\/$/, '')) continue;
+    body.push(`      await page.goto(${gotoTarget(url, suite)}, { waitUntil: 'domcontentloaded' });`);
   }
   for (const call of test.reuse) {
     body.push(`      await ${call.exportName}(engine, page${argsOf(call)});`);
@@ -345,6 +352,28 @@ function renderTest(test: BubblegumTest, seenNotes: Set<string>): string[] {
   ];
 }
 
+/**
+ * A navigation target, expressed the way the suite expresses it.
+ *
+ * With a base-url constant identified, the URL is written relative to it —
+ * `` `${initialApplicationUri}/facilitators/list` `` — so the generated test
+ * follows `ENV` like every hand-written one. Without one it falls back to the
+ * literal, which is correct but pinned to the environment that was explored.
+ */
+function gotoTarget(url: string, suite: BubblegumSuite): string {
+  const base = suite.baseUrlConstant;
+  if (base === undefined) return quote(url);
+
+  const trimmedBase = suite.baseUrl.replace(/\/$/, '');
+  if (url === trimmedBase || url === `${trimmedBase}/`) return base.name;
+  if (url.startsWith(`${trimmedBase}/`)) {
+    return `\`\${${base.name}}${url.slice(trimmedBase.length)}\``;
+  }
+  // Outside the explored app: a literal is the honest answer, since the
+  // constant demonstrably does not describe this address.
+  return quote(url);
+}
+
 function argsOf(call: ReusedCall): string {
   return call.args.length === 0 ? '' : `, ${call.args.join(', ')}`;
 }
@@ -362,6 +391,16 @@ function importSpecifier(call: ReusedCall): string {
  * the project root (`packages/data/BAP.ts`) while the test imports it relative
  * to `src/smart-tests/tests`, which is four levels down in this layout.
  */
+/**
+ * Any project-root-relative path, as the emitted test must import it.
+ *
+ * Same four-level hop as the credential files: the manifest records paths from
+ * the project root, the test sits in `<suite>/tests`.
+ */
+function crossPackageSpecifier(importPath: string): string {
+  return credentialSpecifier(importPath);
+}
+
 function credentialSpecifier(importPath: string): string {
   const withoutExtension = importPath.replace(/\.[cm]?tsx?$/, '');
   const fromPackages = withoutExtension.replace(/^packages\//, '');

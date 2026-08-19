@@ -3875,3 +3875,71 @@ reader's mistake. The `Run:` line is now derived from `config.suiteDir`, the sam
 value that decides where the file is written.
 
 Tests: 76 across the bubblegum files. Build, typecheck, lint clean.
+
+### B3.7 — A hardcoded base URL is a correctness bug (2026-08-18)
+
+Operator review of the first generated test raised two things. The first is
+mine and is worse than it looks.
+
+The generated file hardcoded
+`https://pph-web-gateway-ccsit.../web/h365-portal` five times. The suite's own
+tests import `initialApplicationUri` from `utilities/constants/url`, which
+switches on `ENV`. So the generated test was not merely off-style — it was
+**pinned to one environment**, and a run with `ENV=SIT` would have driven CCSIT
+while reporting SIT. That is the kind of defect that produces a green run
+against the wrong system.
+
+The manifest gains `constants`: exported `const`s whose name ends in `url` or
+`uri`, with the literal recorded when there is one. `resolveBaseUrlConstant`
+then chooses by evidence:
+
+1. a constant whose recorded literal prefixes the explored base URL — proof,
+   because the scanner read the value and the crawler visited it (longest
+   prefix wins, so `https://host/web/h365-portal` beats `https://host`);
+2. failing that, a single constant whose *name* reads like an application entry
+   point, which is what an env-switched one looks like — computed, so no literal
+   to compare;
+3. failing that, nothing, and the literal stays. Several plausible URL constants
+   with no way to tell them apart is a choice, and picking wrong sends the whole
+   suite to the wrong environment — much worse than a literal that is inelegant.
+
+Deeper paths render relative to it — `` `${initialApplicationUri}/facilitators/list` ``
+— and a case whose only navigation is back to the base no longer re-opens the
+app it is already on.
+
+**The second review point is not the emitter's to fix, and that matters.** The
+tests cover their acceptance criteria thinly — the first case verifies a menu
+item and stops, where the AC also calls for search and filter, click-through
+behaviour and hidden controls. The emitter rendered the plan faithfully; the
+plan is thin. Three separate causes, recorded here because only one is a
+prompting problem:
+
+- **The planner is never shown the manifest.** BUBBLEGUM_PLAN says "Planner
+  (Stage A → TestPlan) — reused, with manifest added to its context". That was
+  never implemented. So the planner does not know `initialApplicationUri`
+  exists, does not know `navigateToActivities` exists, and does not know the
+  suite can assert `in the row where Name is "X", Status is "Reviewing"`. It
+  writes `visible` checks on element ids because that is all it has been shown.
+  Fixing it means changing `context-builder.ts` and `planner.ts` — Phase 3,
+  frozen. **Needs approval.**
+- **The assertion vocabulary cannot express what this suite asserts.**
+  `AssertionKind` is `visible|hidden|text|url|count|value|toast`. There is no
+  way to say "in the row where Name is X, Status is Y", so even a fully-informed
+  planner could not emit the suite's own richest assertion form. Phase 0 LOCKED.
+  **Needs approval.**
+- **The Screen Model is thin.** Two pages, 33 elements, the listing page in its
+  empty state, search and filter unlabelled. Two cases are blocked for exactly
+  the right reason. That one is the operator's: seed the data, re-explore, and
+  put an `aria-label` on the icon buttons.
+
+And the mechanism the operator asked for — "can Flint always follow a coding
+standard" — **already exists and is already wired**: `kb/conventions.md` is read
+by `flint plan` and passed to the planner verbatim. The file simply has not been
+written. Worth being precise about what belongs in it: house *judgement* (cover
+every clause of an AC, prefer a row assertion to a visible check) belongs in
+conventions; house *structure* (import the base URL constant, flows never
+assert) belongs in the emitter as code. A prompt cannot be relied on for the
+second, and this entry is the proof — the base URL bug is exactly the kind of
+rule that has to be enforced deterministically or not at all.
+
+Tests: 80 across the bubblegum files.

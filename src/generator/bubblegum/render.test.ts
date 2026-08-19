@@ -56,6 +56,14 @@ const SUITE: BubblegumSuite = {
   ],
 };
 
+const WITH_CONSTANT: BubblegumSuite = {
+  ...SUITE,
+  baseUrlConstant: {
+    name: 'initialApplicationUri',
+    importPath: 'packages/utilities/constants/url.ts',
+  },
+};
+
 const render = (suite: BubblegumSuite = SUITE) => {
   const files = renderSuite(suite);
   const find = (suffix: string) => files.find((f) => f.path.endsWith(suffix))!;
@@ -246,6 +254,48 @@ describe('a case that must not run', () => {
     });
     const flow = files.find((f) => f.path.endsWith('.flow.ts'))!;
     expect(flow.contents).toContain('export async function openListingFlow');
+  });
+});
+
+describe('the app entry point comes from the suite, not from a literal', () => {
+  /**
+   * A live run hardcoded a full CCSIT URL five times while the suite's own tests
+   * import `initialApplicationUri`, which switches on `ENV`. The generated file
+   * was not off-style, it was pinned to one environment: `ENV=SIT` would still
+   * have driven CCSIT.
+   */
+  const withConstant = () =>
+    renderSuite(WITH_CONSTANT).find((f) => f.path.endsWith('.test.mts'))!.contents;
+
+  it('imports the constant and opens the app with it', () => {
+    const contents = withConstant();
+    expect(contents).toContain(
+      "const { initialApplicationUri } = await import('../../../../utilities/constants/url');",
+    );
+    expect(contents).toContain(
+      'await page.goto(initialApplicationUri, { waitUntil: \'networkidle\', timeout: 30000 });',
+    );
+  });
+
+  it('writes a deeper path relative to it', () => {
+    expect(withConstant()).toContain(
+      'await page.goto(`${initialApplicationUri}/facilitators/list`, ',
+    );
+  });
+
+  it('falls back to the literal when no constant was identified', () => {
+    // Several plausible URL constants and no way to tell them apart is a choice,
+    // and a wrong base URL sends the whole suite to the wrong environment.
+    expect(render().test.contents).toContain("await page.goto('https://portal.test/web/h365-portal'");
+  });
+
+  it('does not re-open the app inside a case that only wanted the base url', () => {
+    const atBase: BubblegumSuite = {
+      ...WITH_CONSTANT,
+      tests: [{ ...WITH_CONSTANT.tests[0]!, goto: ['https://portal.test/web/h365-portal/'] }],
+    };
+    const contents = renderSuite(atBase).find((f) => f.path.endsWith('.test.mts'))!.contents;
+    expect(contents.match(/page\.goto\(/g)).toHaveLength(1);
   });
 });
 

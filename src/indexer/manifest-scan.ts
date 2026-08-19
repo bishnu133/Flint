@@ -10,6 +10,7 @@ import {
 } from 'ts-morph';
 import {
   SuiteManifestSchema,
+  type ConstantEntry,
   type CredentialEntry,
   type DataEntry,
   type FlowEntry,
@@ -90,6 +91,7 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
   const helpers: HelperEntry[] = [];
   const credentials: CredentialEntry[] = [];
   const repositories: RepositoryEntry[] = [];
+  const constants: ConstantEntry[] = [];
 
   for (const file of suiteFiles) {
     const path = rel(file);
@@ -107,6 +109,7 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
     try {
       credentials.push(...readCredentials(file, path));
       repositories.push(...readRepositories(file, path));
+      constants.push(...readUrlConstants(file, path));
     } catch (err) {
       warnings.push({ file: path, message: describe(err) });
     }
@@ -128,6 +131,7 @@ export function scanManifest(options: ManifestScanOptions): SuiteManifest {
     helpers: helpers.sort(byId),
     credentials: credentials.sort((a, b) => a.getter.localeCompare(b.getter)),
     repositories: repositories.sort((a, b) => a.className.localeCompare(b.className)),
+    constants: constants.sort((a, b) => a.name.localeCompare(b.name)),
     warnings: warnings.sort(
       (a, b) => a.file.localeCompare(b.file) || a.message.localeCompare(b.message),
     ),
@@ -394,6 +398,36 @@ function readHelpers(file: SourceFile, path: string): HelperEntry[] {
       ...(summary !== undefined ? { summary } : {}),
     };
   });
+}
+
+/**
+ * Exported URL constants.
+ *
+ * Deliberately the narrowest useful net: an exported `const` whose name ends in
+ * `url` or `uri`. The emitter hardcoded a full CCSIT URL five times into a
+ * generated test while the suite's own tests import `initialApplicationUri`,
+ * which switches on `ENV` — so the generated file was pinned to one
+ * environment. That is a correctness bug wearing a style bug's clothes, and the
+ * fix is for the generator to know the constant exists.
+ *
+ * The literal is recorded when it is a plain string, because that is what lets
+ * the emitter check a constant actually describes the app it explored rather
+ * than picking one by name and hoping.
+ */
+function readUrlConstants(file: SourceFile, path: string): ConstantEntry[] {
+  const entries: ConstantEntry[] = [];
+  for (const declaration of file.getVariableDeclarations()) {
+    if (!declaration.isExported()) continue;
+    const name = declaration.getName();
+    if (!/(url|uri)$/i.test(name)) continue;
+    const initializer = declaration.getInitializer();
+    const literal =
+      initializer !== undefined && initializer.isKind(SyntaxKind.StringLiteral)
+        ? initializer.getLiteralText()
+        : undefined;
+    entries.push({ name, file: path, ...(literal !== undefined ? { value: literal } : {}) });
+  }
+  return entries;
 }
 
 /**

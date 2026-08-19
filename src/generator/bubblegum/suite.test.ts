@@ -92,6 +92,13 @@ const MANIFEST: SuiteManifest = {
     { getter: 'getVendorAdminCredentials', file: 'packages/data/BAP.ts', role: 'Vendor admin' },
   ],
   repositories: [],
+  constants: [
+    {
+      name: 'initialApplicationUri',
+      file: 'packages/utilities/constants/url.ts',
+      value: 'https://portal.test',
+    },
+  ],
   warnings: [],
 };
 
